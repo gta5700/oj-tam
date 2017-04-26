@@ -33,116 +33,83 @@ type
 
 
   IojScreenLockContext = interface ['{D835ECCE-BF66-4263-8FD3-A2364B7F958B}']
+    function getName: string;
+    procedure setName(const Value: string);
+
     function Form: TCustomForm;
     procedure LockScreen;
     procedure UnLockScreen;
     function LockCount:integer;
     function IsLockActive: boolean;
 
+    procedure ReleaseContext;
+    function _RefCount:integer;
+
+
+    property Name: string read getName write setName;
     //  procedure setCaption(Caption: string);
     //  procedure addLog(LogMessage: string);
   end;
 
-  TojCustomLockContext = class(TInterfacedObject, IojScreenLockContext)
-  protected
-    function Form: TCustomForm;virtual;abstract;
-    procedure LockScreen;virtual;abstract;
-    procedure UnLockScreen; virtual;abstract;
-    function LockCount: integer; virtual;abstract;
-    function IsLockActive: boolean; virtual;abstract;
-  end;
 
-  TojUserLockContext = class(TojCustomLockContext)
+  TojRootLockContext = class;
+  TojUserLockContext = class(TInterfacedObject, IojScreenLockContext)
   protected
-    FRoot: TojCustomLockContext;
+    FRoot: TojRootLockContext;
     FCalledLocalLock: boolean;
+    FCalledLocalRelease: boolean;
+    FName: string;
+  private
+    function getName: string;
+    procedure setName(const Value: string);
   protected
-    constructor Create(Root: TojCustomLockContext);virtual;
-    function Form: TCustomForm;override;
-    procedure LockScreen;override;
-    procedure UnLockScreen; override;
-    function LockCount: integer;override;
-    function IsLockActive: boolean; override;
+    constructor Create(Root: TojRootLockContext);virtual;
+    function Root: TojRootLockContext;
+    function Form: TCustomForm;
+    procedure LockScreen;
+    procedure UnLockScreen;
+    function LockCount: integer;
+    function IsLockActive: boolean;
+
+    procedure ReleaseContext;
+    function _RefCount:integer;
+
+    property Name: string read getName write setName;
   public
     destructor Destroy;override;
   end;
 
 
-  //  zapewnia TYLKO dostep do formy i zlicza klikniecia
-  TojRootLockContext = class(TojCustomLockContext)
+  TojRootLockContext = class(TInterfacedObject)
   protected
     FScreenLockForm: TojScreenLockForm;
     FScreenLockCount: integer;
+    FChildContextList: TList;
   protected
     constructor Create;virtual;
-    function Form: TCustomForm;override;
-    procedure LockScreen;override;
-    procedure UnLockScreen; override;
-    function LockCount: integer;override;
-    function IsLockActive: boolean; override;
-    function CreateChild: TojCustomLockContext;
+    function Form: TCustomForm;
+    procedure LockScreen;
+    procedure UnLockScreen;
+    function LockCount: integer;
+    function IsLockActive: boolean;
+
+    function CreateChild: IojScreenLockContext;
+    function IsChild(p_Context: IojScreenLockContext): boolean;
+    function IsLastChild(p_Context: IojScreenLockContext): boolean;
+    procedure RemoveFromChildContextList(p_Context: IojScreenLockContext);
+    procedure ReleaseChildContext(p_Context: IojScreenLockContext);
   public
     destructor Destroy;override;
   end;
+
 
   TojScreenLock = class sealed
   private
     class var FRootContext: TojRootLockContext;
   public
     class function getContext(p_LockScreen: boolean = TRUE; p_Caption: string = ''): IojScreenLockContext;
-    class procedure freeContext(p_Context: IojScreenLockContext);
   end;
 
-
-//  TojRootLockContext = class;
-//  TojUserLockContext = class;
-//  IojScreenLockContext = interface ['{D835ECCE-BF66-4263-8FD3-A2364B7F958B}']
-//    function Form: TCustomForm;
-//    procedure LockScreen;
-//    procedure UnLockScreen;
-//    function LockCount:integer;
-//    function IsLockActive: boolean;
-//  end;
-
-
-
-//  TojScreenLock = class(TInterfacedObject)
-//  private
-//    class var FScreenLockForm: TojScreenLockForm;
-//    class var FScreenLockCount: integer;
-//    class var FContextCount: integer;
-//  protected
-//    class procedure _LockScreen;
-//    class procedure _UnLockScreen;
-//    class function _LockCount: integer;
-//    constructor Create;virtual;
-//  public
-//    destructor Destroy;override;
-//    //class function getContext(p_LockScreen: boolean = TRUE): IojScreenLockContext;
-//    class function getContext(p_LockScreen: boolean = TRUE): TojScreenLockContext;
-//
-//  end;
-//
-//  IojScreenLockContext = interface ['{4466706D-9910-4FBD-85CB-939B08AB5DB2}']
-//    function Form: TCustomForm;
-//    procedure LockScreen;
-//    procedure UnLockScreen;
-//    function LockCount:integer;
-//    function LockActive: boolean;
-//  end;
-//
-//  TojScreenLockContext = class(TInterfacedObject, IojScreenLockContext)
-//  private
-//    FCalledLocalLock: boolean;
-//  protected
-//    constructor Create;virtual;
-//  public
-//    function Form: TCustomForm;
-//    function LockCount:integer;
-//    procedure LockScreen;
-//    procedure UnLockScreen;
-//    function LockActive: boolean;
-//  end;
 
 
 
@@ -200,6 +167,8 @@ begin
   self.Color:= clSkyBlue;
   self.DefaultMonitor:= dmDesktop;
   self.Position:= poMainFormCenter;
+  self.Position:= poOwnerFormCenter;
+
   self.KeyPreview:= TRUE;
 
   self.Width:= 350;
@@ -271,177 +240,96 @@ begin
 end;
 
 
-//{ TojScreenLock }
-//
-//constructor TojScreenLock.Create;
-//begin
-//  inherited Create;
-//  inc(TojScreenLock.FContextCount);
-//end;
-//
-//destructor TojScreenLock.Destroy;
-//begin
-//  inherited;
-//  dec(TojScreenLock.FContextCount);
-//end;
-//
-//class function TojScreenLock.getContext(p_LockScreen: boolean): TojScreenLockContext;
-//begin
-//  result:= TojScreenLockContext.Create;
-//
-//  //  zzawsze tworzymy
-//  if not Assigned(TojScreenLock.FScreenLockForm)
-//  then TojScreenLock.FScreenLockForm:= TojScreenLockForm.CreateNew(nil);
-//
-//  if p_LockScreen then result.LockScreen;
-//end;
-//
-//class function TojScreenLock._LockCount: integer;
-//begin
-//  result:= TojScreenLock.FScreenLockCount;
-//end;
-//
-//class procedure TojScreenLock._LockScreen;
-//begin
-//
-//  //  forma ZAWSZE istnieje
-//  TojScreenLock.FScreenLockForm.LockScreen;
-//  inc(TojScreenLock.FScreenLockCount);
-//
-////  if Assigned(TojScreenLock.FScreenLockForm)
-////  then inc(TojScreenLock.FScreenLockCount)
-////  else
-////  begin
-////    TojScreenLock.FScreenLockForm:= TojScreenLockForm.CreateNew(nil);
-////    inc(TojScreenLock.FScreenLockCount);
-////    TojScreenLock.FScreenLockForm.LockScreen;
-////  end;
-//
-//end;
-//
-//class procedure TojScreenLock._UnLockScreen;
-//begin
-//
-//
-//    if TojScreenLock.FContextCount = 0 then
-//    begin
-//      TojScreenLock.FScreenLockForm.Free;
-//      TojScreenLock.FScreenLockForm:= nil;
-//      TojScreenLock.FScreenLockCount:= 0;
-//      TojScreenLock.FContextCount:= 0;
-//    end;
-//
-//
-//
-//
-////  if not Assigned(TojScreenLock.FScreenLockForm) AND (TojScreenLock.FScreenLockCount<>0)
-////  then TojScreenLock.FScreenLockCount:= 0;
-////
-////  if Assigned(TojScreenLock.FScreenLockForm) then
-////  begin
-////    dec(TojScreenLock.FScreenLockCount);
-////
-////    if TojScreenLock.FScreenLockCount = 0 then
-////    begin
-////      TojScreenLock.FScreenLockForm.UnlockScreen;
-////      FreeAndNil(TojScreenLock.FScreenLockForm);
-////    end;
-////  end;
-//
-//end;
-//
-//{ TojScreenLockContext }
-//
-//constructor TojScreenLockContext.Create;
-//begin
-//  inherited Create;
-//  FCalledLocalLock:= FALSE;
-//end;
-//
-//
-//function TojScreenLockContext.Form: TCustomForm;
-//begin
-//  result:= TojScreenLock.FScreenLockForm;
-//end;
-//
-//function TojScreenLockContext.LockActive: boolean;
-//begin
-//  result:= Assigned(TojScreenLock.FScreenLockForm)
-//      AND (TojScreenLock.FScreenLockForm.IsScreenLockActive);
-//end;
-//
-//function TojScreenLockContext.LockCount: integer;
-//begin
-//  result:= TojScreenLock.FScreenLockCount;
-//end;
-//
-//procedure TojScreenLockContext.LockScreen;
-//begin
-//  if FCalledLocalLock
-//  then raise Exception.Create('TojScreenLockContext.LockScreen -> already Locked');
-//
-//  TojScreenLock._LockScreen;
-//  FCalledLocalLock:= TRUE;
-//end;
-//
-//procedure TojScreenLockContext.UnLockScreen;
-//begin
-//  if FCalledLocalLock then
-//  begin
-//    TojScreenLock._UnLockScreen;
-//    FCalledLocalLock:= FALSE;
-//  end;
-//
-//end;
 
 { TojUserLockContext }
 
-constructor TojUserLockContext.Create(Root: TojCustomLockContext);
+constructor TojUserLockContext.Create(Root: TojRootLockContext);
 begin
   inherited Create;
   FRoot:= Root;
   FCalledLocalLock:= FALSE;
+  FCalledLocalRelease:= FALSE;
 end;
 
 destructor TojUserLockContext.Destroy;
 begin
-  //  zwolnienie locka nie Odblokowywyuje ekranu
-  //  trzeba robic recznie
-  if FCalledLocalLock then ShowMessage('TojUserLockContext.Destroy -> LocalLock still active');
+  if FCalledLocalLock then ShowMessage('TojUserLockContext.Destroy -> '+ self.Name +'.LocalLock still active');
+
+  if not FCalledLocalRelease then
+  begin
+    //  to prevent loop
+    ShowMessage('TojUserLockContext.Destroy -> '+ self.Name +' do ForceRelease');
+    if self.RefCount = 0 then self._AddRef;
+    self.ReleaseContext;
+  end;
+
   inherited;
 end;
 
+
 function TojUserLockContext.Form: TCustomForm;
 begin
-  result:= FRoot.Form;
+  result:= Root.Form;
+end;
+
+function TojUserLockContext.getName: string;
+begin
+  result:= FName;
 end;
 
 function TojUserLockContext.IsLockActive: boolean;
 begin
-  result:= FRoot.IsLockActive;
+  result:= Root.IsLockActive;
 end;
 
 function TojUserLockContext.LockCount: integer;
 begin
-  result:= FRoot.LockCount;
+  result:= Root.LockCount;
 end;
 
 procedure TojUserLockContext.LockScreen;
 begin
   if not FCalledLocalLock then
   begin
-    FRoot.LockScreen;
+    Root.LockScreen;
     FCalledLocalLock:= TRUE;
   end;
+end;
+
+procedure TojUserLockContext.ReleaseContext;
+begin
+  //  babol ??????
+  Root.ReleaseChildContext(self);
+  FCalledLocalRelease:= TRUE;
+  FRoot:= nil;
+end;
+
+function TojUserLockContext.Root: TojRootLockContext;
+begin
+  if FCalledLocalRelease AND not Assigned(FRoot)
+  then raise Exception.Create('TojUserLockContext.Root -> current context already released');
+
+  result:= FRoot;
+end;
+
+procedure TojUserLockContext.setName(const Value: string);
+begin
+  if FName <> Value then
+    FName:= Value;
 end;
 
 procedure TojUserLockContext.UnLockScreen;
 begin
   if FCalledLocalLock then
   begin
-    FRoot.UnLockScreen;
+    Root.UnLockScreen;
     FCalledLocalLock:= FALSE;
   end;
+end;
+
+function TojUserLockContext._RefCount: integer;
+begin
+  result:= self.RefCount;
 end;
 
 { TojRootLockContext }
@@ -451,11 +339,16 @@ begin
   inherited Create;
   FScreenLockForm:= TojScreenLockForm.CreateNew(nil);
   FScreenLockCount:= 0;
+
+  FChildContextList:= TList.Create;
 end;
 
-function TojRootLockContext.CreateChild: TojCustomLockContext;
+function TojRootLockContext.CreateChild: IojScreenLockContext;
 begin
   result:= TojUserLockContext.Create(self);
+
+  //  weak reference
+  FChildContextList.Add(Pointer(result));
 end;
 
 destructor TojRootLockContext.Destroy;
@@ -464,12 +357,26 @@ begin
   then ShowMessage('TojRootLockContext.Destroy -> ScreenLock still active ');
 
   FreeAndNil(FScreenLockForm);
+  FreeAndNil(FChildContextList);
   inherited;
 end;
 
 function TojRootLockContext.Form: TCustomForm;
 begin
   result:= FScreenLockForm;
+end;
+
+function TojRootLockContext.IsChild(p_Context: IojScreenLockContext): boolean;
+begin
+  //  weak reference
+  result:= (FChildContextList.IndexOf(Pointer(p_Context)) >= 0);
+end;
+
+function TojRootLockContext.IsLastChild(p_Context: IojScreenLockContext): boolean;
+begin
+  //  weak reference
+  result:= (FChildContextList.Count > 0)
+       AND (FChildContextList.Last = Pointer(p_Context));
 end;
 
 function TojRootLockContext.IsLockActive: boolean;
@@ -486,6 +393,41 @@ procedure TojRootLockContext.LockScreen;
 begin
   Inc(FScreenLockCount);
   FScreenLockForm.IsScreenLockActive:= TRUE;
+end;
+
+procedure TojRootLockContext.ReleaseChildContext(p_Context: IojScreenLockContext);
+begin
+
+  if not Assigned(p_Context) then
+  begin
+    ShowMessage('TojRootLockContext.ReleaseChildContext -> Context not assigned');
+    Exit;
+  end;
+
+  if not IsChild( p_Context ) then
+  begin
+    ShowMessage('TojRootLockContext.ReleaseChildContext -> Context: '+ p_Context.Name +' is not a valid child');
+    Exit;
+  end;
+
+  if not IsLastChild(p_Context) then
+  begin
+    ShowMessage('TojRootLockContext.freeContext: '+ p_Context.Name +' -> niepoprawna kolejnoœæ zwalniania kontextów');
+    //  kontynuujemy
+  end;
+
+  p_Context.UnLockScreen;
+  RemoveFromChildContextList(p_Context);
+
+  //  nie zwalniamy Formy, zeby zachowac, np. wymiar okna zmieniony przez usera
+  //  if LockCount( = 0) AND (FChildContext.Count = 0)
+  //  then FreeAndNil(TojScreenLock.FRootContext);
+end;
+
+procedure TojRootLockContext.RemoveFromChildContextList(p_Context: IojScreenLockContext);
+begin
+  //  wear reference
+  FChildContextList.Remove(Pointer( p_Context ));
 end;
 
 procedure TojRootLockContext.UnLockScreen;
