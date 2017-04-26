@@ -41,6 +41,7 @@ type
     procedure UnLockScreen;
     function LockCount:integer;
     function IsLockActive: boolean;
+    function LockTime: TTime;
 
     procedure ReleaseContext;
     function _RefCount:integer;
@@ -70,6 +71,7 @@ type
     procedure UnLockScreen;
     function LockCount: integer;
     function IsLockActive: boolean;
+    function LockTime: TTime;
 
     procedure ReleaseContext;
     function _RefCount:integer;
@@ -85,6 +87,7 @@ type
     FScreenLockForm: TojScreenLockForm;
     FScreenLockCount: integer;
     FChildContextList: TList;
+    FLockStart: TDateTime;
   protected
     constructor Create;virtual;
     function Form: TCustomForm;
@@ -92,6 +95,9 @@ type
     procedure UnLockScreen;
     function LockCount: integer;
     function IsLockActive: boolean;
+
+    function LockTime: TTime;
+
 
     function CreateChild: IojScreenLockContext;
     function IsChild(p_Context: IojScreenLockContext): boolean;
@@ -101,6 +107,7 @@ type
   public
     destructor Destroy;override;
   end;
+
 
 
   TojScreenLock = class sealed
@@ -231,6 +238,7 @@ procedure TojScreenLockForm.WMEraseBkgnd(var Message: TWmEraseBkgnd);
 begin
   DrawBackground;
   Message.Result:= 1;
+  //  inherited;
 end;
 
 procedure TojScreenLockForm.WMNCHitTest(var Msg: TWMNCHitTest);
@@ -296,6 +304,11 @@ begin
   end;
 end;
 
+function TojUserLockContext.LockTime: TTime;
+begin
+  result:= Root.LockTime;
+end;
+
 procedure TojUserLockContext.ReleaseContext;
 begin
   //  babol ??????
@@ -339,6 +352,7 @@ begin
   inherited Create;
   FScreenLockForm:= TojScreenLockForm.CreateNew(nil);
   FScreenLockCount:= 0;
+  FLockStart:= 0.0;
 
   FChildContextList:= TList.Create;
 end;
@@ -393,6 +407,14 @@ procedure TojRootLockContext.LockScreen;
 begin
   Inc(FScreenLockCount);
   FScreenLockForm.IsScreenLockActive:= TRUE;
+  if FScreenLockCount = 1 then FLockStart:= Now;
+end;
+
+function TojRootLockContext.LockTime: TTime;
+begin
+  if FLockStart = 0.0
+  then result:= 0.0
+  else result:= Now - FLockStart;
 end;
 
 procedure TojRootLockContext.ReleaseChildContext(p_Context: IojScreenLockContext);
@@ -434,6 +456,7 @@ procedure TojRootLockContext.UnLockScreen;
 begin
   dec(FScreenLockCount);
   FScreenLockForm.IsScreenLockActive:= (FScreenLockCount > 0);
+  if FScreenLockCount = 0 then FLockStart:= 0.0;
 end;
 
 { TojScreenLock }
