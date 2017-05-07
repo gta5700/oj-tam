@@ -34,7 +34,7 @@ type
 
   TojThreadTaskLogReceiveEvent = procedure(TaskName: string; LogText: string; LogType: TojThreadLogType) of object;
 
-
+//  TojThreadTaskEnd =  procedure(TaskName: string; LogText: string; LogType: TojThreadLogType) of object;
 
 
   {$region 'TojThreadTaskList'}
@@ -75,6 +75,12 @@ type
     function prepareContext: TojThreadTaskContext;
     function currentContext: TojThreadTaskContext;
     function getThreadTaskContextClass: TojThreadTaskContextClass;virtual;
+
+    //  te sa synchronizowane przez watek
+    procedure processTaskStartEvents(ctx: TojThreadTaskContext);virtual;
+    procedure processTaskEndEvents(ctx: TojThreadTaskContext);virtual;
+    procedure processTaskHandleExceptionEvents(ctx: TojThreadTaskContext; var Handled: boolean);virtual;
+
   public
     procedure Execute(ctx: TojThreadTaskContext);virtual;abstract;
     constructor Create(TaskName: string);overload;virtual;
@@ -134,11 +140,25 @@ type
     FReturnValue: Variant;
     FThread: TojThread;
     FTask: TojThreadTask;
+    FSuccess: boolean;
+    FExceptionObject: Exception;
+    FExceptionHandled: boolean;
   protected
     procedure connectTo(Thread: TojThread; Task: TojThreadTask);
+
+    procedure setSuccess(const Value: boolean);
+    procedure setExceptionHandled(const Value: boolean);
+    procedure setExceptionObject(const Value: Exception);
   public
+    constructor Create;virtual;
+    destructor Destroy;override;
     procedure ForwardLog(const LogText: string; LogType: TojThreadLogType = tltLog);
+
     property Task: TojThreadTask read FTask;
+    property Success: boolean read FSuccess;
+    property ExceptionHandled: boolean read FExceptionHandled;
+    property ExceptionObject: Exception read FExceptionObject;
+
     property ReturnValue: Variant read FReturnValue write FReturnValue;
   end;
 
@@ -152,14 +172,10 @@ type
   private
     FTaskList: TojThreadTaskList;
     FCurrentTask: TojThreadTask;
+    FCurrentContext: TojThreadTaskContext;
     FIsExecuting: Variant;
-
-    FTaskSuccess: boolean;
-    FTaskExceptionHandled: boolean;
-
-    // do obs³ugi wyj¹tków
+    // do obs³ugi wyj¹tków przez HandleThreadException
     FException: Exception;
-    FExceptionMessage:string;
   private
     FOnThreadStart: TojThreadStartEvent;
     FOnThreadEnd: TojThreadEndEvent;
@@ -183,26 +199,31 @@ type
     procedure DoThreadIdle;virtual;
     procedure DoHandleThreadException;virtual;
 
-    procedure DoTaskStart;virtual;
-    procedure DoTaskEnd;virtual;
-    procedure DoTaskEndCallback;virtual;
-    procedure DoHandleTaskException;virtual;
+    procedure DoProcessThreadTaskStart;virtual;
+    procedure DoProcessThreadTaskEnd;virtual;
+    procedure DoProcessTaskStart;virtual;
+    procedure DoProcessTaskEnd;virtual;
+    procedure DoProcessHandleException;virtual;
 
     procedure ThreadStart;
     procedure ThreadEnd;
     procedure ThreadIdle;
     procedure HandleThreadException;virtual;
 
-    procedure TaskStart;
-    procedure TaskEnd;
-    procedure TaskEndCallback;
-    procedure HandleTaskException;
+    //  g³owne zdarzenie po stronie Thread-a
+    procedure ProcessThreadTaskStart;
+    procedure ProcessThreadTaskEnd;
+    //  g³owne zdarzenie po stronie Task-a
+    procedure ProcessTaskStart;
+    procedure ProcessTaskEnd;
+    //  mix zdarzenia dla Task-a i Thread-a
+    procedure ProcessHandleException;
+
   public
     constructor Create(TaskList: TojThreadTaskList; CreateSuspended: boolean = TRUE);reintroduce;virtual;
     destructor Destroy;override;
     function IsIdle: boolean;
     function IsExecuting: boolean;
-
 
     procedure ForwardLog(const LogText: string; TaskName: string = ''; LogType: TojThreadLogType = tltLog);
   public
@@ -319,26 +340,11 @@ type
 
   {$endregion 'TojThreadUtils'}
 
-//  TojThreadComponent = class(TComponent)
-//  private
-//  protected
-//    FThread: TojThread;
-//  public
-//  published
-//  end;
-
   function VarToPointer(Value: Variant): TObject;
   function PointerToVar(Value: Pointer): Variant;
 
-//  procedure register;
-
 implementation
-uses dateUtils, types;
-
-//procedure register;
-//begin
-//  RegisterComponentsProc('oj_tam', [TojThreadComponent]);
-//end;
+uses dateUtils, types, dialogs;
 
 function VarToPointer(Value: Variant): TObject;
 var v_temp: NativeInt;
@@ -423,7 +429,6 @@ destructor TojThreadTaskList.Destroy;
 begin
   LockList;    // Make sure nobody else is inside the list.
   try
-    //  FList.Free;
     Clear(TRUE);
     inherited Destroy;
   finally
@@ -480,6 +485,7 @@ begin
   FOnTaskException:= nil;
 end;
 
+
 function TojThreadTask.currentContext: TojThreadTaskContext;
 begin
   //  zwarcamy istniejacy kontext, NIE TWORZYMY
@@ -510,6 +516,26 @@ begin
     FThreadContext:= getThreadTaskContextClass.Create;
     result:= FThreadContext;
   end;
+end;
+
+procedure TojThreadTask.processTaskEndEvents(ctx: TojThreadTaskContext);
+begin
+  //  ShowMessage('TojThreadTask.processTaskEndEvents -> ');
+  if Assigned(FOnTaskEndCallback)
+  then FOnTaskEndCallback(ctx.Task.TaskName, ctx.Success, ctx.ReturnValue);
+
+  //  inne metody...
+end;
+
+procedure TojThreadTask.processTaskHandleExceptionEvents(ctx: TojThreadTaskContext; var Handled: boolean);
+begin
+
+
+end;
+
+procedure TojThreadTask.processTaskStartEvents(ctx: TojThreadTaskContext);
+begin
+  //  na razie brak zdarzen...
 end;
 
 procedure TojThreadTask.setThreadCustomContext(const Value: TojThreadTaskContext);
@@ -561,6 +587,7 @@ begin
   else FTaskList:= TojThreadTaskList.Create;
 
   FCurrentTask:= nil;
+  FCurrentContext:= nil;
   FIsExecuting:= NULL;
   FIgnoreUnhandledTaskExceptions:= FALSE;
   if not CreateSuspended then
@@ -572,22 +599,6 @@ begin
   FreeAndNil(FCurrentTask);
   FreeAndNil(FTaskList);
   inherited;
-end;
-
-procedure TojThread.DoHandleTaskException;
-begin
-  //  task i thread maj¹ oddzielne zdarzenia do obslugi wyj¹tku
-  //  task ma pierszenstwo
-  if Assigned(FCurrentTask) AND Assigned(FCurrentTask.FOnTaskException)
-  then FCurrentTask.FOnTaskException(FCurrentTask.TaskName, FException, FTaskExceptionHandled);
-    
-  //  zdarzenie dla thread odpalane ZAWSZE nawet jak zdarzenie po stronie taska
-  //  zwróci FTaskExceptionHandled = TRUE
-  if Assigned(FOnTaskException) then
-    if Assigned(FCurrentTask)
-    then FOnTaskException(FCurrentTask.TaskName, FException, FTaskExceptionHandled)
-    else FOnTaskException('', FException, FTaskExceptionHandled);
-
 end;
 
 procedure TojThread.DoHandleThreadException;
@@ -606,22 +617,34 @@ begin
     else FOnThreadException('', FException);
 end;
 
-procedure TojThread.DoTaskEnd;
+procedure TojThread.DoProcessHandleException;
+var v_handled: boolean;
 begin
-  if Assigned(FOnTaskEnd) AND Assigned(FCurrentTask)
-  then FOnTaskEnd(FCurrentTask.TaskName, FTaskSuccess, FCurrentTask.currentContext.ReturnValue);
+  v_handled:= FCurrentContext.ExceptionHandled;
+  try
+    //  task i thread maj¹ oddzielne zdarzenia do obslugi wyj¹tku
+    //  task ma pierszenstwo
+    FCurrentContext.Task.processTaskHandleExceptionEvents(FCurrentContext, v_handled);
+
+    //  zdarzenie dla thread odpalane ZAWSZE nawet jak zdarzenie po stronie taska
+    //  zwróci v_handled = TRUE
+    if Assigned(FOnTaskException)
+    then FOnTaskException(FCurrentContext.Task.TaskName, FCurrentContext.ExceptionObject, v_handled);
+  finally
+    FCurrentContext.setExceptionHandled( v_handled );
+  end;
 end;
 
-procedure TojThread.DoTaskEndCallback;
+procedure TojThread.DoProcessTaskEnd;
 begin
-  if Assigned(FCurrentTask) AND Assigned(FCurrentTask.FOnTaskEndCallback)
-  then FCurrentTask.FOnTaskEndCallback(FCurrentTask.TaskName, FTaskSuccess, FCurrentTask.currentContext.ReturnValue);
+  if Assigned(FCurrentTask)
+  then FCurrentTask.processTaskEndEvents(FCurrentTask.currentContext);
 end;
 
-procedure TojThread.DoTaskStart;
+procedure TojThread.DoProcessTaskStart;
 begin
-  if Assigned(FOnTaskStart) AND Assigned(FCurrentTask)
-  then FOnTaskStart(FCurrentTask.TaskName);
+  if Assigned(FCurrentTask)
+  then FCurrentTask.processTaskStartEvents(FCurrentTask.currentContext);
 end;
 
 procedure TojThread.DoThreadEnd;
@@ -639,8 +662,21 @@ begin
   if Assigned(FOnThreadStart) then FOnThreadStart();
 end;
 
+procedure TojThread.DoProcessThreadTaskEnd;
+begin
+  if Assigned(FOnTaskEnd) then FOnTaskEnd(FCurrentTask.TaskName, FCurrentContext.Success, FCurrentContext.ReturnValue);
+  //  i inne w zaleznosci od potrzeb
+  //  if Assigned(FOnTaskEndCtx) then FOnTaskEnd(FCurrentTask.currentContext);
+end;
+
+procedure TojThread.DoProcessThreadTaskStart;
+begin
+  if Assigned(FOnTaskStart) then FOnTaskStart(FCurrentTask.TaskName);
+  //  i inne w zaleznosci od potrzeb
+  //  if Assigned(FOnTaskStartCtx) then FOnTaskStart(FCurrentTask.currentContext);
+end;
+
 procedure TojThread.Execute;
-var v_ctx: TojThreadTaskContext;
 const CNST_LOCAL_TIMEOUT = 50;
 begin
   FIsExecuting:= TRUE;
@@ -658,20 +694,23 @@ begin
           while not self.Terminated AND FTaskList.AtLeast do
           begin
             FCurrentTask:= FTaskList.Pop;
-            FTaskSuccess:= FALSE;  //  pesymistycznie
             try
-              TaskStart;
               //  context zwalniany przez Task-a
-              v_ctx:= FCurrentTask.prepareContext;
+              FCurrentContext:= FCurrentTask.prepareContext;
               try
-                v_ctx.connectTo(self, FCurrentTask);
-                FCurrentTask.Execute(v_ctx);
-                FTaskSuccess:= TRUE;
-              except
-                FTaskSuccess:= FALSE;
-                HandleTaskException;
+                FCurrentContext.connectTo(self, FCurrentTask);
 
-                if not FTaskExceptionHandled then
+                ProcessThreadTaskStart; //  zdarzenia Thread-a - start taska
+                ProcessTaskStart;       //  zdarzenia Taska-a - start taska
+
+                FCurrentTask.Execute(FCurrentContext);
+                FCurrentContext.setSuccess( TRUE )
+
+              except
+                FCurrentContext.setSuccess( FALSE );
+                ProcessHandleException;
+
+                if not FCurrentContext.ExceptionHandled then
                 begin
                   if FIgnoreUnhandledTaskExceptions
                   then ForwardLog('ignoring unhandled task exception', FCurrentTask.TaskName, tltDebug)
@@ -681,9 +720,10 @@ begin
               end;
 
             finally
-              TaskEndCallBack;
-              TaskEnd;
+              ProcessThreadTaskEnd;   //  zdarzenia Thread-a - start taska
+              ProcessTaskEnd;         //  zdarzenia Taska-a - start taska
               FreeAndNil(FCurrentTask);
+              FCurrentContext:= nil;
             end;
 
           end;
@@ -695,12 +735,11 @@ begin
         Sleep(CNST_LOCAL_TIMEOUT);
       end;  //  while not self.Terminated do
 
-
-
     EXCEPT
       HandleThreadException;
       //  jak TaskEndCallBack lub AfterTask siê posypie to tytaj wczyscimy
       FreeAndNil(FCurrentTask);
+      FCurrentContext:= nil;
     END;
 
   FINALLY
@@ -727,39 +766,15 @@ begin
   result:= FIgnoreUnhandledTaskExceptions;
 end;
 
-procedure TojThread.HandleTaskException;
-begin
-  FTaskExceptionHandled:= FALSE;
-
-  //  task i thread maj¹ oddzielne zdarzenia do obslugi wyj¹tku
-  //  wy-if-owanie jest robione w DoHandleTaskException
-  if Assigned(FOnTaskException) OR Assigned(FCurrentTask.OnTaskException) then
-  begin
-
-    FException:= Exception(ExceptObject);
-    try
-      // Don't show EAbort messages
-      FExceptionMessage:= FException.Message;
-      //  bez testu na FCurrentTask
-      if not (FException is EAbort) then
-      begin
-        if Assigned(FOnTaskException)
-        then Synchronize(DoHandleTaskException);
-      end;
-    finally
-      FException:= nil;
-    end;
-  end;
-end;
-
 procedure TojThread.HandleThreadException;
 begin
   // This function is virtual so you can override it
   // and add your own functionality.
+  //  lokalna referencja tylko na potrzeby DoHandleThreadException
   FException:= Exception(ExceptObject);
   try
     // Don't show EAbort messages
-    FExceptionMessage:= FException.Message;
+    //  FExceptionMessage:= FException.Message;
     //  bez testu na FCurrentTask
     if not (FException is EAbort) then
     begin
@@ -798,22 +813,33 @@ begin
   FIgnoreUnhandledTaskExceptions:= Value;
 end;
 
-procedure TojThread.TaskEnd;
+procedure TojThread.ProcessHandleException;
+var v_exception: Exception;
 begin
-  if Assigned(FOnTaskEnd) AND Assigned(FCurrentTask)
-  then Synchronize(DoTaskEnd);
+  //  task i thread maj¹ oddzielne zdarzenia do obslugi wyj¹tku
+  //  wy-if-owanie jest robione w DoProcessHandleException
+  v_exception:= Exception(AcquireExceptionObject);
+  // Don't show EAbort messages
+  if not (v_exception is EAbort) then
+  begin
+    FCurrentContext.setExceptionObject( v_exception );
+    FCurrentContext.setExceptionHandled( FALSE );
+    Synchronize(DoProcessHandleException);
+  end
+  else
+    FreeAndNil(v_exception);
 end;
 
-procedure TojThread.TaskEndCallback;
+procedure TojThread.ProcessTaskEnd;
 begin
-  if Assigned(FCurrentTask) AND Assigned(FCurrentTask.FOnTaskEndCallback)
-  then Synchronize(DoTaskEndCallback);
+  if Assigned(FCurrentTask)
+  then Synchronize(DoProcessTaskEnd);
 end;
 
-procedure TojThread.TaskStart;
+procedure TojThread.ProcessTaskStart;
 begin
-  if Assigned(FOnTaskStart) AND Assigned(FCurrentTask)
-  then Synchronize(DoTaskStart);
+  if Assigned(FCurrentTask)
+  then Synchronize(DoProcessTaskStart);
 end;
 
 procedure TojThread.ThreadEnd;
@@ -829,6 +855,19 @@ end;
 procedure TojThread.ThreadStart;
 begin
   if Assigned(FOnThreadStart) then Synchronize(DoThreadStart);
+end;
+
+procedure TojThread.ProcessThreadTaskEnd;
+begin
+  if Assigned(FCurrentTask) AND Assigned(FOnTaskEnd)
+  then Synchronize(DoProcessThreadTaskEnd);
+end;
+
+procedure TojThread.ProcessThreadTaskStart;
+begin
+  //  testujemy od razu zdarzenie zeby nie synchronizowac sie na darmo
+  if Assigned(FCurrentTask) AND (Assigned(FOnTaskStart))
+  then Synchronize(DoProcessThreadTaskStart);
 end;
 
 { TojThreadUtils }
@@ -1029,10 +1068,47 @@ begin
 end;
 
 
+constructor TojThreadTaskContext.Create;
+begin
+  inherited;
+  FReturnValue:= NULL;
+  FThread:= nil;
+  FTask:= nil;
+  FSuccess:= FALSE;
+  FExceptionHandled:= FALSE;
+  FExceptionObject:= nil;
+end;
+
+destructor TojThreadTaskContext.Destroy;
+begin
+  FreeAndNil(FExceptionObject);
+  inherited;
+end;
+
 procedure TojThreadTaskContext.ForwardLog(const LogText: string; LogType: TojThreadLogType);
 begin
   if Assigned(FThread)
   then FThread.ForwardLog(LogText, FTask.TaskName, LogType);
+end;
+
+procedure TojThreadTaskContext.setExceptionHandled(const Value: boolean);
+begin
+  if FExceptionHandled <> Value
+  then FExceptionHandled:= Value;
+end;
+
+procedure TojThreadTaskContext.setExceptionObject(const Value: Exception);
+begin
+  if FExceptionObject <> Value then
+  begin
+    FreeAndNil(FExceptionObject);
+    FExceptionObject:= Value;
+  end;
+end;
+
+procedure TojThreadTaskContext.setSuccess(const Value: boolean);
+begin
+  if FSuccess <> Value then FSuccess:= Value;
 end;
 
 end.
