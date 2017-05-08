@@ -390,6 +390,7 @@ begin
     else KV_list.Add(result);
   end
   else
+    raise Exception.CreateFmt('TojCustomKeyValueList.innerAddNewItem -> podany klucz: "%s" juz istnieje',
                               [Key]);
 end;
 
