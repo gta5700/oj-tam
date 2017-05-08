@@ -2,7 +2,7 @@ unit ojScreenLock;
 
 interface
 uses  Windows, classes, sysUtils, Forms, StdCtrls, Controls, Graphics, messages,
-      GraphUtil, Contnrs, DB, Variants, ExtCtrls;
+      GraphUtil, Contnrs, DB, Variants, ExtCtrls, types;
 
 type
 
@@ -35,6 +35,9 @@ type
   IojScreenLockContext = interface ['{D835ECCE-BF66-4263-8FD3-A2364B7F958B}']
     function getName: string;
     procedure setName(const Value: string);
+    function getCaption: string;
+    procedure setCaption(const Value: string);
+
 
     function Form: TCustomForm;
     procedure LockScreen;
@@ -48,6 +51,8 @@ type
 
 
     property Name: string read getName write setName;
+    property Caption: string read getCaption write setCaption;
+
     //  procedure setCaption(Caption: string);
     //  procedure addLog(LogMessage: string);
   end;
@@ -63,6 +68,8 @@ type
   private
     function getName: string;
     procedure setName(const Value: string);
+    function getCaption: string;
+    procedure setCaption(const Value: string);
   protected
     constructor Create(Root: TojRootLockContext);virtual;
     function Root: TojRootLockContext;
@@ -77,6 +84,7 @@ type
     function _RefCount:integer;
 
     property Name: string read getName write setName;
+    property Caption: string read getCaption write setCaption;
   public
     destructor Destroy;override;
   end;
@@ -156,11 +164,21 @@ end;
 
 procedure TojScreenLockForm.DrawBackground;
 var v_rect: TRect;
+    //  v_bk_mode: integer;
 begin
   v_rect:= self.ClientRect;
   //  GradientFillCanvas(self.Canvas, clSkyBlue, clBlack, v_rect, gdVertical);
   //  GradientFillCanvas(self.Canvas, clSkyBlue, clWhite, v_rect, gdVertical);
   GradientFillCanvas(self.Canvas, clWhite, clSkyBlue, v_rect, gdVertical);
+  if self.Caption<>'' then
+  begin
+    {$MESSAGE 'GTA poprawic!!!!'}
+    //  v_bk_mode:= GetBkMode(Canvas.Handle);
+    //  SetBkMode(Canvas.Handle, TRANSPARENT);
+    Canvas.Brush.Style:= bsClear;
+    Canvas.TextOut(10, 10, self.Caption);
+    //  SetBkMode(Canvas.Handle, v_bk_mode);
+  end;
 end;
 
 procedure TojScreenLockForm.InitializeNewForm;
@@ -280,6 +298,12 @@ begin
   result:= Root.Form;
 end;
 
+function TojUserLockContext.getCaption: string;
+begin
+  //
+  result:= Root.Form.Caption;
+end;
+
 function TojUserLockContext.getName: string;
 begin
   result:= FName;
@@ -323,6 +347,12 @@ begin
   then raise Exception.Create('TojUserLockContext.Root -> current context already released');
 
   result:= FRoot;
+end;
+
+procedure TojUserLockContext.setCaption(const Value: string);
+begin
+  Root.Form.Caption:= Value;
+  Root.Form.Invalidate; //  ????
 end;
 
 procedure TojUserLockContext.setName(const Value: string);
