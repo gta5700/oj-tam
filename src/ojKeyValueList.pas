@@ -4,10 +4,12 @@
 //    + usuniecie FAutoExpand, jest SaveValues
 //    + poprawki w Add() AddOrSet()
 //  2016-11-18
+//    + Stuff[] klucz jako Variant + automatycznie tworzenie Itemsow
 //    + alias TojKeyValueList = TojKeyValueList;
 //    + alias IojKeyValueList = IojKeyVariantList;
 //    + Enumeratory ;
 
+//  moze wywalic SafeValue[] i zostawic tylko Stuff[]???????
 //  wywalone SafeValue i wyciecie KeyObject i keyInterface
 //  function ValueDef(Key: string; ValueDefault: Variant): Variant;
 
@@ -15,7 +17,7 @@ unit ojKeyValueList;
 
 interface
 uses
-  Contnrs, Variants, SysUtils, DB, Dialogs;
+  Classes, Contnrs, Variants, SysUtils, DB, Dialogs;
 
 
 type
@@ -30,7 +32,7 @@ type
   private
     FKey: string;
   public
-    constructor Create(Key: string);
+    constructor Create(Key: string);virtual;
     function ValueAsString: string;virtual;
   public
     property Key: string read FKey write FKey;
@@ -40,7 +42,8 @@ type
   private
     FValue: Variant;
   public
-    constructor Create(Key: string; Value: Variant);virtual;
+    constructor Create(Key: string);overload;override;
+    constructor Create(Key: string; Value: Variant);reintroduce;overload;virtual;
     function ValueAsString: string;override;
   public
     property Value: Variant read FValue write FValue;
@@ -77,6 +80,8 @@ type
     function ValueList(p_Separator: string = ','): string;
     function KeyValueList(p_Separator: string = ','): string;
 
+    //  duplicate()
+
     function getEnumerator: TojCustomKeyValueEnumerator;
     property CaseSensitive: boolean read getCaseSensitive;
   end;
@@ -101,11 +106,11 @@ type
     function createNewItem(Key: string): TojCustomKeyValueItem; virtual;
 
     //  2 bazowo - unikalno - wyjatkowe
-    //  zwr�� item na podstawie klucza lub wyj�tek jesli brak
+    //  zwroc item na podstawie klucza lub wyjatek jesli brak
     function innerGetItemByKey(Key: string): TojCustomKeyValueItem; virtual;
-    //  dodaj item na podstawie klucza lub wyj�tek jesli istnieje
+    //  dodaj item na podstawie klucza lub wyjatek jesli istnieje
     function innerAddNewItem(Key: string): TojCustomKeyValueItem; virtual;
-    //  zwr�� item jesli istnieje lub dodaj i zwr�c nowo utworzony
+    //  zwroc item jesli istnieje lub dodaj i zwroc nowo utworzony
     function innerGetItemByKeyEx(Key: string): TojCustomKeyValueItem; virtual;
   public
     constructor Create(p_CaseSensitive: boolean = FALSE);virtual;
@@ -191,8 +196,15 @@ end;
 
 constructor TojKeyValueItem.Create(Key: string; Value: Variant);
 begin
-  inherited Create(Key);
+  //  inherited Create(Key);
+  Create(Key);  //  zenby zainicjowac FValue
   FValue:= Value;
+end;
+
+constructor TojKeyValueItem.Create(Key: string);
+begin
+  inherited Create(Key);
+  FValue:= NULL;
 end;
 
 function TojKeyValueItem.ValueAsString: string;
@@ -378,7 +390,6 @@ begin
     else KV_list.Add(result);
   end
   else
-    raise Exception.CreateFmt('TojCustomKeyValueList.innerAddNewItem -> podany klucz: "%s" ju� istnieje',
                               [Key]);
 end;
 
@@ -466,13 +477,18 @@ begin
 end;
 
 function TojKeyValueList.getStuff(Key: Variant): Variant;
+var v_index: integer;
 begin
-  result:= TojKeyValueItem(innerGetItemByKeyEx( VarToStrDef(Key, '') )).Value;
+  //  result:= TojKeyValueItem(innerGetItemByKeyEx( VarToStrDef(Key, '') )).Value;
+  v_index:= IndexOf(VarToStrDef(Key, ''));
+  if v_index < 0
+  then result:= NULL
+  else result:= TojKeyValueItem( self.Items[v_index] ).Value;
 end;
 
 function TojKeyValueList.getValue(Key: string): Variant;
 begin
-  //  odczytaj lub wyj�tek
+  //  odczytaj lub wyjatek
   result:= TojKeyValueItem(self.innerGetItemByKey(Key)).Value;
 end;
 
@@ -483,7 +499,7 @@ end;
 
 procedure TojKeyValueList.setValue(Key: string; const Value: Variant);
 begin
-  //  ustawiaamy wartosc, wi�c jak nie ma klucza to tworzymy automatek
+  //  ustawiaamy wartosc, wiec jak nie ma klucza to tworzymy automatek
   TojKeyValueItem(self.innerGetItemByKeyEx(Key)).Value:= Value;
 end;
 
@@ -493,13 +509,15 @@ var v_index: integer;
 begin
   v_index:= self.IndexOf(Key);
 
-  if v_index >= 0 then
+  if v_index < 0
+  then result:= ValueDefault
+  else
   begin
     result:= TojKeyValueItem( self.Items[v_index] ).Value;
     if VarIsPusty(result)
     then result:= ValueDefault;
-  end
-  else result:= ValueDefault;
+  end;
+
 end;
 
 constructor TojCustomKeyValueEnumerator.Create(p_List: TojCustomKeyValueList);
