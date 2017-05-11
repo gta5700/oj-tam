@@ -497,6 +497,8 @@ begin
   then TojScreenLock.FRootContext:= TojRootLockContext.Create;
 
   result:= TojScreenLock.FRootContext.CreateChild;
+  if p_Caption <> ''
+  then result.Caption:= p_Caption;
 
   //  if p_Caption <> '' then result.setCaption(p_Caption);
   if p_LockScreen then result.LockScreen;
