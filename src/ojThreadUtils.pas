@@ -29,7 +29,7 @@ type
 
   TojThreadTaskStartEvent = procedure(TaskName: string) of object;
   TojThreadTaskEndEvent = procedure(TaskName: string; Success: boolean; ReturnValue: Variant) of object;
-  TojThreadTaskEndCallback = procedure(TaskName: string; Success: boolean; ReturnValue: Variant) of object;
+  //  TojThreadTaskEndCallback = procedure(TaskName: string; Success: boolean; ReturnValue: Variant) of object;
   TojThreadTaskExceptionEvent = procedure(TaskName: string; E:Exception; var Handled: boolean) of object;
 
   TojThreadTaskLogReceiveEvent = procedure(TaskName: string; LogText: string; LogType: TojThreadLogType) of object;
@@ -68,7 +68,8 @@ type
     FTaskName: string;
     FThreadContext: TojThreadTaskContext;
     FThreadCustomContext: TojThreadTaskContext;
-    FOnTaskEndCallback: TojThreadTaskEndCallback;
+    FOnTaskStart: TojThreadTaskStartEvent;
+    FOnTaskEnd: TojThreadTaskEndEvent;
     FOnTaskException: TojThreadTaskExceptionEvent;
     procedure setThreadCustomContext(const Value: TojThreadTaskContext);
   protected
@@ -89,7 +90,8 @@ type
     property TaskName: string read FTaskName write FTaskName;
     property ThreadCustomContext: TojThreadTaskContext read FThreadCustomContext write setThreadCustomContext;
   public
-    property OnTaskEndCallback: TojThreadTaskEndCallback read FOnTaskEndCallback write FOnTaskEndCallback;
+    property OnTaskStart: TojThreadTaskStartEvent read FOnTaskStart write FOnTaskStart;
+    property OnTaskEnd: TojThreadTaskEndEvent read FOnTaskEnd write FOnTaskEnd;
     property OnTaskException: TojThreadTaskExceptionEvent read FOnTaskException write FOnTaskException;
   end;
 
@@ -101,7 +103,7 @@ type
   private
     FMethod: TNotifyEvent;
   public
-    constructor Create(TaskName: string; Method: TNotifyEvent; TaskEndCallBack: TojThreadTaskEndCallback = nil);reintroduce;virtual;
+    constructor Create(TaskName: string; Method: TNotifyEvent; TaskEndCallBack: TojThreadTaskEndEvent = nil);reintroduce;virtual;
     procedure Execute(ctx: TojThreadTaskContext);override;
   end;
 
@@ -113,7 +115,7 @@ type
   private
     FMethod: TThreadMethod;
   public
-    constructor Create(TaskName: string; Method: TThreadMethod; TaskEndCallBack: TojThreadTaskEndCallback = nil);reintroduce;virtual;
+    constructor Create(TaskName: string; Method: TThreadMethod; TaskEndCallBack: TojThreadTaskEndEvent = nil);reintroduce;virtual;
     procedure Execute(ctx: TojThreadTaskContext);override;
   end;
 
@@ -125,12 +127,22 @@ type
   private
     FMethod: TThreadProcedure;
   public
-    constructor Create(TaskName: string; Method: TThreadProcedure; TaskEndCallBack: TojThreadTaskEndCallback = nil);reintroduce;virtual;
+    constructor Create(TaskName: string; Method: TThreadProcedure; TaskEndCallBack: TojThreadTaskEndEvent = nil);reintroduce;virtual;
     procedure Execute(ctx: TojThreadTaskContext);override;
   end;
 
   {$endregion 'TojProcedureThreadTask'}
 
+
+  {$region 'TojTestThreadTask'}
+  TojTestThreadTask = class(TojThreadTask)
+  private
+    FSleep: Cardinal;
+  public
+    constructor Create(TaskName: string; p_SleepMiliSec: Cardinal);reintroduce;virtual;
+    procedure Execute(ctx: TojThreadTaskContext);override;
+  end;
+  {$endregion 'TojTestThreadTask'}
 
   {$region 'TojThreadTaskContext'}
 
@@ -342,6 +354,7 @@ type
 
   function VarToPointer(Value: Variant): TObject;
   function PointerToVar(Value: Pointer): Variant;
+  function VarIsPusty(Value: Variant): boolean;
 
 implementation
 uses dateUtils, types, dialogs;
@@ -368,6 +381,11 @@ begin
       v_temp:= NativeInt(Value);
       result:= v_temp;
     end;
+end;
+
+function VarIsPusty(Value: Variant): boolean;
+begin
+  result:= VarIsNull(Value) OR VarIsEmpty(Value) OR VarIsClear(Value);
 end;
 
 { TojThreadTaskList }
@@ -481,7 +499,8 @@ begin
   FTaskName:= TaskName;
   FThreadContext:= nil;
   FThreadCustomContext:= nil;
-  FOnTaskEndCallback:= nil;
+  FOnTaskStart:= nil;
+  FOnTaskEnd:= nil;
   FOnTaskException:= nil;
 end;
 
@@ -521,8 +540,8 @@ end;
 procedure TojThreadTask.processTaskEndEvents(ctx: TojThreadTaskContext);
 begin
   //  ShowMessage('TojThreadTask.processTaskEndEvents -> ');
-  if Assigned(FOnTaskEndCallback)
-  then FOnTaskEndCallback(ctx.Task.TaskName, ctx.Success, ctx.ReturnValue);
+  if Assigned(FOnTaskEnd)
+  then FOnTaskEnd(ctx.Task.TaskName, ctx.Success, ctx.ReturnValue);
 
   //  inne metody...
 end;
@@ -530,12 +549,14 @@ end;
 procedure TojThreadTask.processTaskHandleExceptionEvents(ctx: TojThreadTaskContext; var Handled: boolean);
 begin
 
-
+  if Assigned(FOnTaskException)
+  then FOnTaskException(ctx.Task.TaskName, ctx.ExceptionObject, Handled);
 end;
 
 procedure TojThreadTask.processTaskStartEvents(ctx: TojThreadTaskContext);
 begin
-  //  na razie brak zdarzen...
+  if Assigned(FOnTaskStart)
+  then FOnTaskStart(ctx.Task.TaskName);
 end;
 
 procedure TojThreadTask.setThreadCustomContext(const Value: TojThreadTaskContext);
@@ -546,10 +567,10 @@ end;
 
 { TojNotifyEventThreadTask }
 
-constructor TojNotifyEventThreadTask.Create(TaskName: string; Method: TNotifyEvent; TaskEndCallBack: TojThreadTaskEndCallback);
+constructor TojNotifyEventThreadTask.Create(TaskName: string; Method: TNotifyEvent; TaskEndCallBack: TojThreadTaskEndEvent);
 begin
   inherited Create(TaskName);
-  OnTaskEndCallback:= TaskEndCallBack;
+  OnTaskEnd:= TaskEndCallBack;
   FMethod:= Method;
 end;
 
@@ -562,10 +583,10 @@ end;
 
 { TojMethodThreadTask }
 
-constructor TojMethodThreadTask.Create(TaskName: string; Method: TThreadMethod; TaskEndCallBack: TojThreadTaskEndCallback);
+constructor TojMethodThreadTask.Create(TaskName: string; Method: TThreadMethod; TaskEndCallBack: TojThreadTaskEndEvent);
 begin
   inherited Create(TaskName);
-  OnTaskEndCallback:= TaskEndCallBack;
+  OnTaskEnd:= TaskEndCallBack;
   FMethod:= Method;
 end;
 
@@ -720,8 +741,8 @@ begin
               end;
 
             finally
-              ProcessThreadTaskEnd;   //  zdarzenia Thread-a - start taska
-              ProcessTaskEnd;         //  zdarzenia Taska-a - start taska
+              ProcessThreadTaskEnd;   //  zdarzenia Thread-a - koniec taska
+              ProcessTaskEnd;         //  zdarzenia Taska-a - koniec taska
               FreeAndNil(FCurrentTask);
               FCurrentContext:= nil;
             end;
@@ -1045,10 +1066,10 @@ end;
 
 { TojProcedureThreadTask }
 
-constructor TojProcedureThreadTask.Create(TaskName: string; Method: TThreadProcedure; TaskEndCallBack: TojThreadTaskEndCallback);
+constructor TojProcedureThreadTask.Create(TaskName: string; Method: TThreadProcedure; TaskEndCallBack: TojThreadTaskEndEvent);
 begin
   inherited Create(TaskName);
-  OnTaskEndCallback:= TaskEndCallBack;
+  OnTaskEnd:= TaskEndCallBack;
   FMethod:= Method;
 end;
 
@@ -1109,6 +1130,19 @@ end;
 procedure TojThreadTaskContext.setSuccess(const Value: boolean);
 begin
   if FSuccess <> Value then FSuccess:= Value;
+end;
+
+{ TojTestThreadTask }
+
+constructor TojTestThreadTask.Create(TaskName: string; p_SleepMiliSec: Cardinal);
+begin
+  inherited Create(TaskName);
+  FSleep:= p_SleepMiliSec;
+end;
+
+procedure TojTestThreadTask.Execute(ctx: TojThreadTaskContext);
+begin
+  Sleep(FSleep);
 end;
 
 end.
