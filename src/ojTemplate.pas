@@ -1,7 +1,7 @@
 unit ojTemplate;
 
 interface
-uses classes, sysUtils;
+uses classes, sysUtils, ojKeyValueList;
 
 
 type
@@ -36,8 +36,6 @@ type
     function putCloseBracket(const Value: char): IojTemplateConfig;
     function Duplicate(): IojTemplateConfig;
 
-
-
     property OpenBracket: char read getOpenBracket write setOpenBracket;
     property CloseBracket: char read getCloseBracket write setCloseBracket;
   end;
@@ -70,23 +68,38 @@ type
   public
     class function Config: IojTemplateConfig;
 
+  private type
+    TojSubstituteCallback = class
+    public
+      KV: IojKeyValueList;
+      function TagCallback(p_tag_name: string):string;
+    end;
+
   public
 
-    function detect_tag(const p_input_string: string;
+    class function detect_tag(const p_input_string: string;
         p_start_position: integer; p_end_position: integer;
         var p_tag_start: integer; var p_tag_end: integer;
         var p_human_readable_result: string;
         p_custom_config: IojTemplateConfig = nil
         ): TojDetectTagResult;
 
+    class function detect_tags(const p_input_string: string; p_case_sensitive: boolean = FALSE;
+        p_custom_config: IojTemplateConfig = nil
+        ): IojKeyValueList;
 
-    function Substitute(p_input_string: string; p_tag_callback: TOnTagCallback;
-        p_custom_config: IojTemplateConfig = nil): string;
+    class function Substitute(p_input_string: string; p_tag_callback: TOnTagCallback;
+        p_custom_config: IojTemplateConfig = nil): string; overload;
 
+    class function Substitute(p_input_string: string; p_KV: IojKeyValueList;
+        p_custom_config: IojTemplateConfig = nil): string; overload;
   end;
 
 
 implementation
+uses Variants;
+
+
 
 { TojTemplateConfig }
 
@@ -157,7 +170,7 @@ begin
   result:= TojTemplate.FConfig;
 end;
 
-function TojTemplate.detect_tag(const p_input_string: string;
+class function TojTemplate.detect_tag(const p_input_string: string;
   p_start_position, p_end_position: integer;
   var p_tag_start, p_tag_end: integer;
   var p_human_readable_result: string;
@@ -258,7 +271,59 @@ begin
 
 end;
 
-function TojTemplate.Substitute(p_input_string: string;
+class function TojTemplate.detect_tags(const p_input_string: string;
+  p_case_sensitive: boolean;
+  p_custom_config: IojTemplateConfig): IojKeyValueList;
+var v_tag_name: string;
+    v_start_pos, v_max_pos: integer;
+    v_tag_start, v_tag_end: integer;
+    //  v_rav_start: integer;
+    v_mesg: string;
+    v_dtr: TojDetectTagResult;
+begin
+  result:= TojKeyValueList.Create(p_case_sensitive);
+
+  //  v_rav_start:= 1;
+  v_start_pos:= 1;
+  v_max_pos:= Length(p_input_string);
+
+  repeat
+    v_dtr:= detect_tag(p_input_string, v_start_pos, v_max_pos, v_tag_start, v_tag_end,
+                       v_mesg, p_custom_config);
+
+    if v_dtr in [dtrErrorNoCloseBracket, dtrErrorExtraCloseBracket, dtrErrorExtraOpenBracket] then
+    begin
+      raise Exception.Create('TojTemplate.detect_tags -> ' + v_mesg);
+      Exit;
+    end;
+
+    if v_dtr = dtrTagOK then
+    begin
+      v_tag_name:= Copy(p_input_string, v_tag_start, v_tag_end - v_tag_start+1);
+      result[v_tag_name]:= NULL;
+    end;
+
+    v_start_pos:= v_tag_end + 1;
+    //v_rav_start:= v_tag_end + 1;
+
+  until v_dtr = dtrNoTag;
+end;
+
+class function TojTemplate.Substitute(p_input_string: string;
+  p_KV: IojKeyValueList; p_custom_config: IojTemplateConfig): string;
+var v_call: TojTemplate.TojSubstituteCallback;
+begin
+  //  jak brak taga w p_key_value to wyj¹tek
+  v_call:= TojTemplate.TojSubstituteCallback.Create;
+  try
+    v_call.KV:= p_KV;
+    result:= Substitute(p_input_string, v_call.TagCallback, p_custom_config);
+  finally
+    FreeAndNil(v_call);
+  end;
+end;
+
+class function TojTemplate.Substitute(p_input_string: string;
   p_tag_callback: TOnTagCallback; p_custom_config: IojTemplateConfig): string;
 var v_tag_name, v_tag_value: string;
     v_start_pos, v_max_pos: integer;
@@ -328,6 +393,14 @@ begin
   result:= result +
            Copy(p_input_string, v_rav_start, v_max_pos - v_rav_start + 1);
 
+end;
+
+{ TojTemplate.TojSubstituteCallback }
+
+function TojTemplate.TojSubstituteCallback.TagCallback(p_tag_name: string): string;
+begin
+  //  wersja z wyjatkiem,
+  result:= VarToStr( KV[p_tag_name] );
 end;
 
 initialization
