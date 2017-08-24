@@ -105,11 +105,11 @@ type
         p_start_position: integer; p_end_position: integer;
         var p_human_readable_result: string;
         p_custom_config: IojTemplateConfig = nil
-        ): TojDetectTagResult;
+        ): TojDetectTagResult; overload;
 
     class function detect_tags(const p_input_string: string; p_case_sensitive: boolean = FALSE;
         p_custom_config: IojTemplateConfig = nil
-        ): IojKeyValueList;
+        ): IojKeyValueList; overload;
 
     class function Substitute(p_input_string: string; p_tag_callback: TOnTagCallback;
         p_custom_config: IojTemplateConfig = nil): string; overload;
@@ -300,15 +300,13 @@ class function TojTemplate.detect_tags(const p_input_string: string;
   var p_human_readable_result: string;
   p_custom_config: IojTemplateConfig): TojDetectTagResult;
 
-var v_tag_name: string;
-    v_start_pos, v_max_pos: integer;
+var v_start_pos, v_max_pos: integer;
     v_tag_start, v_tag_end: integer;
     v_mesg: string;
     v_dtr: TojDetectTagResult;
     v_item: TojDetectTagItem;
 
 begin
-  result:= dtrNoTag;
   v_start_pos:= p_start_position;
   v_max_pos:= p_end_position;
 
@@ -342,7 +340,7 @@ begin
 
   until v_dtr = dtrNoTag;
 
-  result:= v_dtr;
+  result:= dtrNoTag;
 end;
 
 class function TojTemplate.detect_tags(const p_input_string: string;
