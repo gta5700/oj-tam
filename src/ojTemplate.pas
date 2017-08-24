@@ -1,16 +1,17 @@
 unit ojTemplate;
 
 interface
-uses classes, sysUtils, ojKeyValueList;
+uses classes, sysUtils, Contnrs, ojKeyValueList;
 
 
 type
 
   TOnTagCallback = function(p_tag_name: string):string of object;
 
+
   TojDetectTagResult = (
-    dtrTagOK,  //  znalazl poprawnego taga
-    dtrNoTag,  //  sparsowal ale tagow brak,
+    dtrNoTag{Left},   //  sparsowal ale tagow brak,
+    dtrTagOK,         //  znalazl poprawnego taga
 
     dtrEscapedOpenBracket,
     dtrEscapedCloseBracket,
@@ -21,10 +22,24 @@ type
     );
 
   {
-    strict ok lub wyj¹tek
-    force zwroc co sie udalo, bez wyj¹tku
-    ignore zwroc pusty napis, bez wyj¹tku
+    strict ok lub wyjatek
+    force zwroc co sie udalo podmienic, bez wyjatku
+    ignore zwroc pusty napis, bez wyjatku
   }
+
+
+  TojDetectTagItem = class(TInterfacedObject)
+  private
+    FStartPos: integer;
+    FEndPos: integer;
+    FTagName: string;
+    FDetectedTag: TojDetectTagResult;
+  public
+    property DetectedTag: TojDetectTagResult read FDetectedTag write FDetectedTag;
+    property TagName: string read FTagName write FTagName;
+    property StartPos: integer read FStartPos write FStartPos;
+    property EndPos: integer read FEndPos write FEndPos;
+  end;
 
   IojTemplateConfig = interface ['{CFBC0AE8-E850-4C49-8018-5E44682211C3}']
     function getOpenBracket: char;
@@ -80,6 +95,14 @@ type
     class function detect_tag(const p_input_string: string;
         p_start_position: integer; p_end_position: integer;
         var p_tag_start: integer; var p_tag_end: integer;
+        var p_human_readable_result: string;
+        p_custom_config: IojTemplateConfig = nil
+        ): TojDetectTagResult;
+
+
+    class function detect_tags(const p_input_string: string;
+        p_output_list: TObjectList;
+        p_start_position: integer; p_end_position: integer;
         var p_human_readable_result: string;
         p_custom_config: IojTemplateConfig = nil
         ): TojDetectTagResult;
@@ -272,6 +295,57 @@ begin
 end;
 
 class function TojTemplate.detect_tags(const p_input_string: string;
+  p_output_list: TObjectList;
+  p_start_position, p_end_position: integer;
+  var p_human_readable_result: string;
+  p_custom_config: IojTemplateConfig): TojDetectTagResult;
+
+var v_tag_name: string;
+    v_start_pos, v_max_pos: integer;
+    v_tag_start, v_tag_end: integer;
+    v_mesg: string;
+    v_dtr: TojDetectTagResult;
+    v_item: TojDetectTagItem;
+
+begin
+  result:= dtrNoTag;
+  v_start_pos:= p_start_position;
+  v_max_pos:= p_end_position;
+
+  repeat
+    v_dtr:= detect_tag(p_input_string, v_start_pos, v_max_pos, v_tag_start, v_tag_end,
+                       v_mesg, p_custom_config);
+
+    if v_dtr in [dtrErrorNoCloseBracket, dtrErrorExtraCloseBracket, dtrErrorExtraOpenBracket] then
+    begin
+      p_human_readable_result:= v_mesg;
+      result:= v_dtr;
+      Exit;
+    end;
+
+    if v_dtr in [dtrTagOK, dtrEscapedOpenBracket, dtrEscapedCloseBracket] then
+    begin
+      v_item:= TojDetectTagItem.Create;
+      try
+        v_item.DetectedTag:= v_dtr;
+        v_item.TagName:= Copy(p_input_string, v_tag_start, v_tag_end - v_tag_start+1);
+        v_item.StartPos:= v_tag_start;
+        v_item.EndPos:= v_tag_end;
+        p_output_list.Add( v_item );
+      except;
+        FreeAndNil(v_item);
+        raise;
+      end;
+    end;
+
+    v_start_pos:= v_tag_end + 1;
+
+  until v_dtr = dtrNoTag;
+
+  result:= v_dtr;
+end;
+
+class function TojTemplate.detect_tags(const p_input_string: string;
   p_case_sensitive: boolean;
   p_custom_config: IojTemplateConfig): IojKeyValueList;
 var v_tag_name: string;
@@ -281,6 +355,7 @@ var v_tag_name: string;
     v_mesg: string;
     v_dtr: TojDetectTagResult;
 begin
+  //  buduje liste KV z nazwami wykrytych tag-ow
   result:= TojKeyValueList.Create(p_case_sensitive);
 
   //  v_rav_start:= 1;
@@ -308,6 +383,7 @@ begin
 
   until v_dtr = dtrNoTag;
 end;
+
 
 class function TojTemplate.Substitute(p_input_string: string;
   p_KV: IojKeyValueList; p_custom_config: IojTemplateConfig): string;
