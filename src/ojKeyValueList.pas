@@ -80,6 +80,7 @@ type
     function ValueList(p_Separator: string = ','): string;
     function KeyValueList(p_Separator: string = ','): string;
 
+    procedure ShowItems;
     //  duplicate()
 
     function getEnumerator: TojCustomKeyValueEnumerator;
@@ -123,6 +124,8 @@ type
     function KeyList(p_Separator: string = ','): string;
     function ValueList(p_Separator: string = ','): string;
     function KeyValueList(p_Separator: string = ','): string;
+
+    procedure ShowItems;
 
     function getEnumerator: TojCustomKeyValueEnumerator;
     property CaseSensitive: boolean read getCaseSensitive;
@@ -171,7 +174,7 @@ type
 
 
 implementation
-uses math, strUtils, TypInfo;
+uses math, strUtils, TypInfo, Forms, ComCtrls, Controls;
 
 function VarIsPusty(Value: Variant): boolean;
 begin
@@ -432,6 +435,54 @@ begin
         Items[i].Key + ' = ' + Items[i].ValueAsString;
 
   result:= Copy(result, Length(p_Separator)+1, Length(result));
+end;
+
+procedure TojCustomKeyValueList.ShowItems;
+var v_form: TForm;
+    v_list_view: TListView;
+    v_item: TListItem;
+    v_kvi: TojCustomKeyValueItem;
+begin
+  v_form:= TForm.Create(nil);
+  try
+    v_form.Caption:= '';
+    v_form.Position:= poMainFormCenter;
+    v_form.BorderStyle:= bsDialog;
+    v_form.Width:= 600;
+    v_form.Height:= 350;
+
+    v_list_view:= TListView.Create(v_form);
+    v_list_view.Align:= alClient;
+    v_list_view.ShowColumnHeaders:= TRUE;
+    v_list_view.ReadOnly:= TRUE;
+    v_list_view.RowSelect:= TRUE;
+    v_list_view.ViewStyle:= vsReport;
+    v_list_view.Parent:= v_form;
+
+    with v_list_view.Columns.Add do
+    begin
+      Caption:= 'Key';
+      AutoSize:= FALSE;
+      Width:= 125;
+    end;
+
+    with v_list_view.Columns.Add do
+    begin
+      Caption:= 'Value';
+      AutoSize:= TRUE;
+    end;
+
+    for v_kvi in self do
+    begin
+      v_item:= v_list_view.Items.Add;
+      v_item.Caption:= v_kvi.Key;
+      v_item.SubItems.Add(v_kvi.ValueAsString);
+    end;
+
+    v_form.ShowModal;
+  finally
+    FreeAndNil(v_form);
+  end;
 end;
 
 function TojCustomKeyValueList.ValueList(p_Separator: string): string;
