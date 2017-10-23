@@ -2,7 +2,8 @@ unit ojScreenLock;
 
 interface
 uses  Windows, classes, sysUtils, Forms, StdCtrls, Controls, Graphics, messages,
-      GraphUtil, Contnrs, DB, Variants, ExtCtrls, types;
+      GraphUtil, Contnrs, DB, Variants, ExtCtrls, types,
+      ojUndoOperation;
 
 type
 
@@ -16,6 +17,7 @@ type
     procedure CreateParams(var Params: TCreateParams); override;
     procedure WMNCHitTest(var Msg: TWMNCHitTest) ; message WM_NCHitTest;
     procedure WMEraseBkgnd(var Message: TWmEraseBkgnd); message WM_ERASEBKGND;
+    //  procedure WMTimer(var Message: TWMTimer); message WM_TIMER;
 
     procedure InnerLockScreen; virtual;
     procedure InnerUnlockScreen; virtual;
@@ -38,7 +40,6 @@ type
     function getCaption: string;
     procedure setCaption(const Value: string);
 
-
     function Form: TCustomForm;
     procedure LockScreen;
     procedure UnLockScreen;
@@ -49,12 +50,8 @@ type
     procedure ReleaseContext;
     function _RefCount:integer;
 
-
     property Name: string read getName write setName;
     property Caption: string read getCaption write setCaption;
-
-    //  procedure setCaption(Caption: string);
-    //  procedure addLog(LogMessage: string);
   end;
 
 
@@ -62,6 +59,7 @@ type
   TojUserLockContext = class(TInterfacedObject, IojScreenLockContext)
   protected
     FRoot: TojRootLockContext;
+    FUndos: TObjectList;
     FCalledLocalLock: boolean;
     FCalledLocalRelease: boolean;
     FName: string;
@@ -83,12 +81,12 @@ type
     procedure ReleaseContext;
     function _RefCount:integer;
 
+    procedure UndoAll;
     property Name: string read getName write setName;
     property Caption: string read getCaption write setCaption;
   public
     destructor Destroy;override;
   end;
-
 
   TojRootLockContext = class(TInterfacedObject)
   protected
@@ -106,7 +104,6 @@ type
 
     function LockTime: TTime;
 
-
     function CreateChild: IojScreenLockContext;
     function IsChild(p_Context: IojScreenLockContext): boolean;
     function IsLastChild(p_Context: IojScreenLockContext): boolean;
@@ -117,15 +114,12 @@ type
   end;
 
 
-
   TojScreenLock = class sealed
   private
     class var FRootContext: TojRootLockContext;
   public
     class function getContext(p_LockScreen: boolean = TRUE; p_Caption: string = ''): IojScreenLockContext;
   end;
-
-
 
 
 implementation
@@ -153,7 +147,7 @@ begin
   inherited;
   //  csOpaque
   Params.Style:= Params.Style OR WS_BORDER;
-  Params.Style:= Params.Style ; //OR WS_SIZEBOX;  //  niebeiska belka wokó³
+  Params.Style:= Params.Style ;//OR WS_SIZEBOX;  //  niebeiska belka wokol
 end;
 
 destructor TojScreenLockForm.Destroy;
@@ -164,12 +158,11 @@ end;
 
 procedure TojScreenLockForm.DrawBackground;
 var v_rect: TRect;
-    //  v_bk_mode: integer;
 begin
   v_rect:= self.ClientRect;
-  //  GradientFillCanvas(self.Canvas, clSkyBlue, clBlack, v_rect, gdVertical);
-  //  GradientFillCanvas(self.Canvas, clSkyBlue, clWhite, v_rect, gdVertical);
+
   GradientFillCanvas(self.Canvas, clWhite, clSkyBlue, v_rect, gdVertical);
+
   if self.Caption<>'' then
   begin
     {$MESSAGE 'GTA poprawic!!!!'}
@@ -198,6 +191,9 @@ begin
 
   self.Width:= 350;
   self.Height:= 120;
+
+  self.Width:= 450;
+  self.Height:= 170;
 end;
 
 procedure TojScreenLockForm.InnerLockScreen;
@@ -255,7 +251,7 @@ end;
 procedure TojScreenLockForm.WMEraseBkgnd(var Message: TWmEraseBkgnd);
 begin
   DrawBackground;
-  Message.Result:= 1;
+  Message.Result:= 0;
   //  inherited;
 end;
 
@@ -266,7 +262,6 @@ begin
 end;
 
 
-
 { TojUserLockContext }
 
 constructor TojUserLockContext.Create(Root: TojRootLockContext);
@@ -275,6 +270,7 @@ begin
   FRoot:= Root;
   FCalledLocalLock:= FALSE;
   FCalledLocalRelease:= FALSE;
+  FUndos:= TObjectList.Create(TRUE);
 end;
 
 destructor TojUserLockContext.Destroy;
@@ -289,6 +285,7 @@ begin
     self.ReleaseContext;
   end;
 
+  FreeAndNil(FUndos);
   inherited;
 end;
 
@@ -337,6 +334,7 @@ procedure TojUserLockContext.ReleaseContext;
 begin
   //  babol ??????
   Root.ReleaseChildContext(self);
+  UndoAll;
   FCalledLocalRelease:= TRUE;
   FRoot:= nil;
 end;
@@ -350,8 +348,10 @@ begin
 end;
 
 procedure TojUserLockContext.setCaption(const Value: string);
+var v_undo: TojCustomUndoOperation;
 begin
-  Root.Form.Caption:= Value;
+  v_undo:= TojUndoPropertyOperation.Create(Root.Form, 'Caption', Value);
+  FUndos.Add(v_undo);
   Root.Form.Invalidate; //  ????
 end;
 
@@ -359,6 +359,18 @@ procedure TojUserLockContext.setName(const Value: string);
 begin
   if FName <> Value then
     FName:= Value;
+end;
+
+procedure TojUserLockContext.UndoAll;
+var i:integer;
+    v_undo: TojCustomUndoOperation;
+begin
+  for i:= FUndos.Count-1 downTo 0 do
+  begin
+    v_undo:= TojCustomUndoOperation(FUndos[i]);
+    v_undo.Undo;
+    FUndos.Delete(i);
+  end;
 end;
 
 procedure TojUserLockContext.UnLockScreen;
@@ -464,7 +476,7 @@ begin
 
   if not IsLastChild(p_Context) then
   begin
-    ShowMessage('TojRootLockContext.freeContext: '+ p_Context.Name +' -> niepoprawna kolejnoœæ zwalniania kontextów');
+    ShowMessage('TojRootLockContext.ReleaseChildContext: '+ p_Context.Name +' -> niepoprawna kolejnosc zwalniania kontextow');
     //  kontynuujemy
   end;
 
@@ -481,6 +493,7 @@ begin
   //  wear reference
   FChildContextList.Remove(Pointer( p_Context ));
 end;
+
 
 procedure TojRootLockContext.UnLockScreen;
 begin
