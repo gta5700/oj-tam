@@ -9,7 +9,13 @@ type
 
   TojScreenLockForm = class(TCustomForm)
   private
+    FDetailText: string;
+    FGradientStopColor: TColor;
+    FGradientStartColor: TColor;
     procedure setIsScreenLockActive(const Value: boolean);
+    procedure setDetailText(const Value: string);
+    procedure setGradientStartColor(const Value: TColor);
+    procedure setGradientStopColor(const Value: TColor);
   protected
     FDisabledHandle: HWND;
     FIsScreenLockActive: boolean;
@@ -27,10 +33,13 @@ type
     procedure LockScreen;
     procedure UnlockScreen;
   public
-    property IsScreenLockActive: boolean read FIsScreenLockActive write setIsScreenLockActive;
-  public
     destructor Destroy;override;
     function CloseQuery: Boolean; override;
+  public
+    property IsScreenLockActive: boolean read FIsScreenLockActive write setIsScreenLockActive;
+    property DetailText: string read FDetailText write setDetailText;
+    property GradientStartColor: TColor read FGradientStartColor write setGradientStartColor;
+    property GradientStopColor: TColor read FGradientStopColor write setGradientStopColor;
   end;
 
 
@@ -39,6 +48,16 @@ type
     procedure setName(const Value: string);
     function getCaption: string;
     procedure setCaption(const Value: string);
+    function getHeight: integer;
+    procedure setHeight(const Value: integer);
+    function getWidth: integer;
+    procedure setWidth(const Value: integer);
+    function getDetailText: string;
+    procedure setDetailText(const Value: string);
+    function getGradientStartColor: TColor;
+    function getGradientStopColor: TColor;
+    procedure setGradientStartColor(const Value: TColor);
+    procedure setGradientStopColor(const Value: TColor);
 
     function Form: TCustomForm;
     procedure LockScreen;
@@ -52,6 +71,11 @@ type
 
     property Name: string read getName write setName;
     property Caption: string read getCaption write setCaption;
+    property Width: integer read getWidth write setWidth;
+    property Height: integer read getHeight write setHeight;
+    property DetailText: string read getDetailText write setDetailText;
+    property GradientStartColor: TColor read getGradientStartColor write setGradientStartColor;
+    property GradientStopColor: TColor read getGradientStopColor write setGradientStopColor;
   end;
 
 
@@ -68,6 +92,16 @@ type
     procedure setName(const Value: string);
     function getCaption: string;
     procedure setCaption(const Value: string);
+    function getHeight: integer;
+    function getWidth: integer;
+    procedure setHeight(const Value: integer);
+    procedure setWidth(const Value: integer);
+    function getDetailText: string;
+    procedure setDetailText(const Value: string);
+    function getGradientStartColor: TColor;
+    function getGradientStopColor: TColor;
+    procedure setGradientStartColor(const Value: TColor);
+    procedure setGradientStopColor(const Value: TColor);
   protected
     constructor Create(Root: TojRootLockContext);virtual;
     function Root: TojRootLockContext;
@@ -83,7 +117,14 @@ type
 
     procedure UndoAll;
     property Name: string read getName write setName;
+
     property Caption: string read getCaption write setCaption;
+    property Width: integer read getWidth write setWidth;
+    property Height: integer read getHeight write setHeight;
+    property DetailText: string read getDetailText write setDetailText;
+
+    property GradientStartColor: TColor read getGradientStartColor write setGradientStartColor;
+    property GradientStopColor: TColor read getGradientStopColor write setGradientStopColor;
   public
     destructor Destroy;override;
   end;
@@ -158,20 +199,37 @@ end;
 
 procedure TojScreenLockForm.DrawBackground;
 var v_rect: TRect;
+    v_text_rect: TRect;
+    v_string: string;
+const CNST_CAPTION_HEIGHT = 25;
+      CNST_MARGIN = 10;
 begin
   v_rect:= self.ClientRect;
 
-  GradientFillCanvas(self.Canvas, clWhite, clSkyBlue, v_rect, gdVertical);
+  GradientFillCanvas(self.Canvas, FGradientStartColor, FGradientStopColor, v_rect, gdVertical);
 
-  if self.Caption<>'' then
+  if self.Caption <> '' then
   begin
-    {$MESSAGE 'GTA poprawic!!!!'}
-    //  v_bk_mode:= GetBkMode(Canvas.Handle);
-    //  SetBkMode(Canvas.Handle, TRANSPARENT);
     Canvas.Brush.Style:= bsClear;
-    Canvas.TextOut(10, 10, self.Caption);
-    //  SetBkMode(Canvas.Handle, v_bk_mode);
+    v_text_rect:= self.ClientRect;
+    v_text_rect.Inflate(-CNST_MARGIN, -CNST_MARGIN);
+    v_text_rect.Height:= v_text_rect.Top + CNST_CAPTION_HEIGHT;
+    v_string:= self.Caption;
+    Canvas.TextRect(v_text_rect, v_string, [tfSingleLine, tfEndEllipsis, tfLeft, tfVerticalCenter]);
   end;
+
+  if self.DetailText <> '' then
+  begin
+    Canvas.Brush.Style:= bsClear;
+    v_text_rect:= self.ClientRect;
+    v_text_rect.Inflate(-CNST_MARGIN, -CNST_MARGIN);
+    if self.Caption <> ''
+    then v_text_rect.Top:= v_text_rect.Top + CNST_CAPTION_HEIGHT + CNST_MARGIN + CNST_MARGIN;
+
+    v_string:= self.DetailText;
+    Canvas.TextRect(v_text_rect, v_string, [tfWordBreak, tfLeft, tfTop]);
+  end;
+
 end;
 
 procedure TojScreenLockForm.InitializeNewForm;
@@ -179,6 +237,9 @@ begin
   inherited;
   FDisabledHandle:= 0;
   FIsScreenLockActive:= FALSE;
+  FDetailText:= '';
+  FGradientStartColor:= clWhite;
+  FGradientStopColor:= clSkyBlue;
 
   self.BorderStyle:= bsNone;
   self.BorderWidth:= 1;
@@ -240,6 +301,33 @@ begin
   InnerLockScreen;
 end;
 
+procedure TojScreenLockForm.setDetailText(const Value: string);
+begin
+  if FDetailText <> Value then
+  begin
+    FDetailText := Value;
+    Invalidate;
+  end;
+end;
+
+procedure TojScreenLockForm.setGradientStartColor(const Value: TColor);
+begin
+  if FGradientStartColor <> Value then
+  begin
+    FGradientStartColor:= Value;
+    Invalidate;
+  end;
+end;
+
+procedure TojScreenLockForm.setGradientStopColor(const Value: TColor);
+begin
+  if FGradientStopColor <> Value then
+  begin
+    FGradientStopColor:= Value;
+    Invalidate;
+  end;
+end;
+
 procedure TojScreenLockForm.setIsScreenLockActive(const Value: boolean);
 begin
   if FIsScreenLockActive <> Value then
@@ -297,13 +385,37 @@ end;
 
 function TojUserLockContext.getCaption: string;
 begin
-  //
   result:= Root.Form.Caption;
+end;
+
+function TojUserLockContext.getDetailText: string;
+begin
+  result:= TojScreenLockForm(Root.Form).DetailText;
+end;
+
+function TojUserLockContext.getGradientStartColor: TColor;
+begin
+  result:= TojScreenLockForm(Root.Form).GradientStartColor;
+end;
+
+function TojUserLockContext.getGradientStopColor: TColor;
+begin
+  result:= TojScreenLockForm(Root.Form).GradientStopColor;
+end;
+
+function TojUserLockContext.getHeight: integer;
+begin
+  result:= Root.Form.Height;
 end;
 
 function TojUserLockContext.getName: string;
 begin
   result:= FName;
+end;
+
+function TojUserLockContext.getWidth: integer;
+begin
+  result:= Root.Form.Width;
 end;
 
 function TojUserLockContext.IsLockActive: boolean;
@@ -355,10 +467,50 @@ begin
   Root.Form.Invalidate; //  ????
 end;
 
+procedure TojUserLockContext.setDetailText(const Value: string);
+var v_undo: TojCustomUndoOperation;
+begin
+  v_undo:= TojUndoPropertyOperation.Create(Root.Form, 'DetailText', Value);
+  FUndos.Add(v_undo);
+  Root.Form.Invalidate; //  ????
+end;
+
+procedure TojUserLockContext.setGradientStartColor(const Value: TColor);
+var v_undo: TojCustomUndoOperation;
+begin
+  v_undo:= TojUndoPropertyOperation.Create(Root.Form, 'GradientStartColor', Value);
+  FUndos.Add(v_undo);
+  Root.Form.Invalidate; //  ????
+end;
+
+procedure TojUserLockContext.setGradientStopColor(const Value: TColor);
+var v_undo: TojCustomUndoOperation;
+begin
+  v_undo:= TojUndoPropertyOperation.Create(Root.Form, 'GradientStopColor', Value);
+  FUndos.Add(v_undo);
+  Root.Form.Invalidate; //  ????
+end;
+
+procedure TojUserLockContext.setHeight(const Value: integer);
+var v_undo: TojCustomUndoOperation;
+begin
+  v_undo:= TojUndoPropertyOperation.Create(Root.Form, 'Height', Value);
+  FUndos.Add(v_undo);
+  Root.Form.Invalidate; //  ????
+end;
+
 procedure TojUserLockContext.setName(const Value: string);
 begin
   if FName <> Value then
     FName:= Value;
+end;
+
+procedure TojUserLockContext.setWidth(const Value: integer);
+var v_undo: TojCustomUndoOperation;
+begin
+  v_undo:= TojUndoPropertyOperation.Create(Root.Form, 'Width', Value);
+  FUndos.Add(v_undo);
+  Root.Form.Invalidate; //  ????
 end;
 
 procedure TojUserLockContext.UndoAll;
