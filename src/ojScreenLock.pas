@@ -228,6 +228,11 @@ begin
 
     v_string:= self.DetailText;
     Canvas.TextRect(v_text_rect, v_string, [tfWordBreak, tfLeft, tfTop]);
+
+    Canvas.Brush.Style:= bsSolid;
+    Canvas.Brush.Color:= clGrayText;
+    v_text_rect.Inflate(CNST_MARGIN div 2, CNST_MARGIN div 2);
+    Canvas.FrameRect(v_text_rect);
   end;
 
 end;
