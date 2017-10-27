@@ -1,6 +1,7 @@
 (*
   2017-03-xx reset
   2017-10-xx reset
+  2017-10-27 TojThreadEx
 *)
 unit ojThreadUtils;
 
@@ -23,6 +24,9 @@ type
   TojThreadTaskProcessExceptionEvent = procedure(Sender: TojThreadTaskContext; E:Exception; var Handled: boolean) of object;
 
   TojThreadTaskEvent = procedure(Sender: TojThreadTaskContext)of object;
+
+  TojTaskMethod = procedure(ctx: TojThreadTaskContext) of object;
+  TojTaskProcedure = reference to procedure(ctx: TojThreadTaskContext);
 
 
   {$region 'TojThreadTaskList'}
@@ -58,6 +62,12 @@ type
     FOnTaskStart: TojThreadTaskEvent;
     FOnTaskEnd: TojThreadTaskEvent;
     FOnTaskException: TojThreadTaskProcessExceptionEvent;
+
+    FOnSuccess: TojTaskMethod;
+    FOnFailure: TojTaskMethod;
+
+    FOnSuccessA: TojTaskProcedure;
+    FOnFailureA: TojTaskProcedure;
   protected
     //  te sa synchronizowane przez watek
     procedure DoTaskStartEvents(ctx: TojThreadTaskContext);virtual;
@@ -72,9 +82,16 @@ type
     property OnTaskStart: TojThreadTaskEvent read FOnTaskStart write FOnTaskStart;
     property OnTaskEnd: TojThreadTaskEvent read FOnTaskEnd write FOnTaskEnd;
     property OnTaskException: TojThreadTaskProcessExceptionEvent read FOnTaskException write FOnTaskException;
+
+    property OnSuccess: TojTaskMethod read FOnSuccess write FOnSuccess;
+    property OnFailure: TojTaskMethod read FOnFailure write FOnFailure;
+
+    property OnSuccessA: TojTaskProcedure read FOnSuccessA write FOnSuccessA;
+    property OnFailureA: TojTaskProcedure read FOnFailureA write FOnFailureA;
   end;
 
   {$endregion 'TojThreadTask'}
+
 
   {$region 'TojTestThreadTask'}
 
@@ -90,8 +107,45 @@ type
   {$endregion 'TojTestThreadTask'}
 
 
-  {$region 'TojThreadTaskContext'}
+  {$region 'TojAnonymousThreadTask'}
 
+  TojAnonymousThreadTask = class(TojThreadTask)
+  private
+    FExceuteProc: TojTaskProcedure;
+  protected
+    //  te sa synchronizowane przez watek
+    procedure DoTaskEndEvents(ctx: TojThreadTaskContext);virtual;
+  public
+    constructor Create(TaskName: string; ExceuteProc: TojTaskProcedure; OnSuccess: TojTaskProcedure; OnFailure: TojTaskProcedure);reintroduce;virtual;
+    procedure Execute(ctx: TojThreadTaskContext);override;
+  public
+    property ExceuteProc: TojTaskProcedure read FExceuteProc write FExceuteProc;
+  end;
+
+  {$endregion 'TojAnonymousThreadTask'}
+
+
+  {$region 'TojMethodThreadTask'}
+
+  TojMethodThreadTask = class(TojThreadTask)
+  private
+    FExceuteMethod: TojTaskMethod;
+    FOnSuccess: TojTaskMethod;
+    FOnFailure: TojTaskMethod;
+  protected
+    //  te sa synchronizowane przez watek
+    procedure DoTaskEndEvents(ctx: TojThreadTaskContext);virtual;
+  public
+    constructor Create(TaskName: string; ExceuteMethod: TojTaskMethod; OnSuccess: TojTaskMethod; OnFailure: TojTaskMethod);reintroduce;virtual;
+    procedure Execute(ctx: TojThreadTaskContext);override;
+  public
+    property ExceuteMethod: TojTaskMethod read FExceuteMethod write FExceuteMethod;
+  end;
+
+  {$endregion 'TojMethodThreadTask'}
+
+
+  {$region 'TojThreadTaskContext'}
 
   TojThreadTaskContext = class
   private
@@ -112,6 +166,7 @@ type
     constructor Create(Thread: TojThread; Task: TojThreadTask);virtual;
     destructor Destroy;override;
     procedure ExportMesasge(const TextMessage: string; IsPublic: boolean);
+    function ThreadTerminated: boolean;
   public
     property Task: TojThreadTask read FTask;
     property Success: boolean read FSuccess;
@@ -146,8 +201,8 @@ type
     FOnThreadException: TojThreadExceptionEvent;
     FOnThreadTaskException: TojThreadTaskProcessExceptionEvent;
 
-    FOnThreadTaskStart: TojThreadEvent;
-    FOnThreadTaskEnd: TojThreadEvent;
+    FOnThreadTaskStart: TojThreadTaskEvent;
+    FOnThreadTaskEnd: TojThreadTaskEvent;
 
     FOnThreadExportMessage: TojThreadExportMessageEvent;
   protected
@@ -187,6 +242,7 @@ type
     destructor Destroy;override;
     function IsIdle: boolean;
     function IsExecuting: boolean;
+    function IsWorking: boolean;
   public
     property TaskList: TojThreadTaskList read FTaskList;
     property IgnoreUnhandledTaskExceptions: boolean read getIgnoreUnhandledTaskExceptions write setIgnoreUnhandledTaskExceptions;
@@ -196,12 +252,115 @@ type
     property OnThreadIdle: TojThreadEvent read FOnThreadIdle write FOnThreadIdle;
     property OnThreadException: TojThreadExceptionEvent read FOnThreadException write FOnThreadException;
     property OnThreadTaskException: TojThreadTaskProcessExceptionEvent read FOnThreadTaskException write FOnThreadTaskException;
-    property OnTaskStart: TojThreadEvent read FOnThreadTaskStart write FOnThreadTaskStart;
-    property OnTaskEnd: TojThreadEvent read FOnThreadTaskEnd write FOnThreadTaskEnd;
+    property OnTaskStart: TojThreadTaskEvent read FOnThreadTaskStart write FOnThreadTaskStart;
+    property OnTaskEnd: TojThreadTaskEvent read FOnThreadTaskEnd write FOnThreadTaskEnd;
     property OnThreadExportMesasge: TojThreadExportMessageEvent read FOnThreadExportMessage write FOnThreadExportMessage;
   end;
 
   {$endregion 'TojThread'}
+
+  {$region 'IojThreadEx'}
+
+  IojThreadEx= interface(IInterface)['{BCB04C6D-0410-4403-A5DF-5CBC5A04CA4E}']
+
+    function getIgnoreUnhandledTaskExceptions: boolean;
+    procedure setIgnoreUnhandledTaskExceptions(const Value: boolean);
+    function getOnThreadEnd: TojThreadEvent;
+    function getOnThreadIdle: TojThreadEvent;
+    function getOnThreadStart: TojThreadEvent;
+    procedure setOnThreadEnd(const Value: TojThreadEvent);
+    procedure setOnThreadIdle(const Value: TojThreadEvent);
+    procedure setOnThreadStart(const Value: TojThreadEvent);
+    function getOnThreadException: TojThreadExceptionEvent;
+    procedure setOnThreadException(const Value: TojThreadExceptionEvent);
+    function getOnTaskEndEvent: TojThreadTaskEvent;
+    function getOnTaskStart: TojThreadTaskEvent;
+    procedure setOnTaskEndEvent(const Value: TojThreadTaskEvent);
+    procedure setOnTaskStart(const Value: TojThreadTaskEvent);
+    function getOnTaskExceptionEvent: TojThreadTaskProcessExceptionEvent;
+    procedure setOnTaskExceptionEvent(const Value: TojThreadTaskProcessExceptionEvent);
+    function getOnExportMessage: TojThreadExportMessageEvent;
+    procedure setOnExportMessage(const Value: TojThreadExportMessageEvent);
+
+    function IsIdle: boolean;
+    function IsExecuting: boolean;
+    procedure Terminate;
+
+    procedure AddTask(Task: TojThreadTask);overload;
+    procedure AddTask(TaskName: string; ExceuteMethod: TojTaskMethod; OnSuccess: TojTaskMethod; OnFailure: TojTaskMethod);overload;
+    procedure AddTask(TaskName: string; ExceuteProc: TojTaskProcedure; OnSuccess: TojTaskProcedure; OnFailure: TojTaskProcedure);overload;
+
+    function WaitForIdle(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
+    function WaitForTerm(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
+    function TaskCount: integer;
+
+    property IgnoreUnhandledTaskExceptions: boolean read getIgnoreUnhandledTaskExceptions write setIgnoreUnhandledTaskExceptions;
+    property OnThreadStart: TojThreadEvent read getOnThreadStart write setOnThreadStart;
+    property OnThreadEnd: TojThreadEvent read getOnThreadEnd write setOnThreadEnd;
+    property OnThreadIdle: TojThreadEvent read getOnThreadIdle write setOnThreadIdle;
+    property OnThreadException: TojThreadExceptionEvent read getOnThreadException write setOnThreadException;
+    property OnTaskStart: TojThreadTaskEvent read getOnTaskStart write setOnTaskStart;
+    property OnTaskEnd: TojThreadTaskEvent read getOnTaskEndEvent write setOnTaskEndEvent;
+    property OnTaskException: TojThreadTaskProcessExceptionEvent read getOnTaskExceptionEvent write setOnTaskExceptionEvent;
+    property OnExportMessage: TojThreadExportMessageEvent read getOnExportMessage write setOnExportMessage;
+  end;
+
+
+  {$endregion 'IojThreadEx'}
+
+  {$region 'TojThreadEx'}
+
+  TojThreadEx = class(TInterfacedObject, IojThreadEx)
+  private
+    FThread: TojThread;
+    function getIgnoreUnhandledTaskExceptions: boolean;
+    procedure setIgnoreUnhandledTaskExceptions(const Value: boolean);
+    function getOnThreadEnd: TojThreadEvent;
+    function getOnThreadIdle: TojThreadEvent;
+    function getOnThreadStart: TojThreadEvent;
+    procedure setOnThreadEnd(const Value: TojThreadEvent);
+    procedure setOnThreadIdle(const Value: TojThreadEvent);
+    procedure setOnThreadStart(const Value: TojThreadEvent);
+    function getOnThreadException: TojThreadExceptionEvent;
+    procedure setOnThreadException(const Value: TojThreadExceptionEvent);
+    function getOnTaskEndEvent: TojThreadTaskEvent;
+    function getOnTaskStart: TojThreadTaskEvent;
+    procedure setOnTaskEndEvent(const Value: TojThreadTaskEvent);
+    procedure setOnTaskStart(const Value: TojThreadTaskEvent);
+    function getOnTaskExceptionEvent: TojThreadTaskProcessExceptionEvent;
+    procedure setOnTaskExceptionEvent(const Value: TojThreadTaskProcessExceptionEvent);
+    function getOnExportMessage: TojThreadExportMessageEvent;
+    procedure setOnExportMessage(const Value: TojThreadExportMessageEvent);
+  public
+    constructor Create(TaskList: TojThreadTaskList);virtual;
+    destructor Destroy;override;
+    function IsIdle: boolean;
+    function IsExecuting: boolean;
+    function IsWorking: boolean;
+    procedure Terminate;
+
+    procedure AddTask(Task: TojThreadTask);overload;
+    procedure AddTask(TaskName: string; ExceuteMethod: TojTaskMethod; OnSuccess: TojTaskMethod; OnFailure: TojTaskMethod);overload;
+    procedure AddTask(TaskName: string; ExceuteProc: TojTaskProcedure; OnSuccess: TojTaskProcedure; OnFailure: TojTaskProcedure);overload;
+
+    function WaitForIdle(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
+    function WaitForTerm(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
+    //  function WaitForTask(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
+
+    function TaskCount: integer;
+  public
+    property IgnoreUnhandledTaskExceptions: boolean read getIgnoreUnhandledTaskExceptions write setIgnoreUnhandledTaskExceptions;
+    property OnThreadStart: TojThreadEvent read getOnThreadStart write setOnThreadStart;
+    property OnThreadEnd: TojThreadEvent read getOnThreadEnd write setOnThreadEnd;
+    property OnThreadIdle: TojThreadEvent read getOnThreadIdle write setOnThreadIdle;
+    property OnThreadException: TojThreadExceptionEvent read getOnThreadException write setOnThreadException;
+    property OnTaskStart: TojThreadTaskEvent read getOnTaskStart write setOnTaskStart;
+    property OnTaskEnd: TojThreadTaskEvent read getOnTaskEndEvent write setOnTaskEndEvent;
+    property OnTaskException: TojThreadTaskProcessExceptionEvent read getOnTaskExceptionEvent write setOnTaskExceptionEvent;
+    property OnExportMessage: TojThreadExportMessageEvent read getOnExportMessage write setOnExportMessage;
+  end;
+
+  {$endregion 'TojThreadEx'}
 
 
 implementation
@@ -335,6 +494,18 @@ end;
 
 procedure TojThreadTask.DoTaskEndEvents(ctx: TojThreadTaskContext);
 begin
+
+  if ctx.Success then
+  begin
+    if Assigned(FOnSuccess) then FOnSuccess(ctx);
+    if Assigned(FOnSuccessA) then FOnSuccessA(ctx);
+  end
+  else
+  begin
+    if Assigned(FOnFailure) then FOnFailure(ctx);
+    if Assigned(FOnFailureA) then FOnFailureA(ctx);
+  end;
+
   if Assigned(FOnTaskEnd) then FOnTaskEnd(ctx);
 end;
 
@@ -662,6 +833,12 @@ begin
         );
 end;
 
+function TojThread.IsWorking: boolean;
+begin
+  //  wykonuje jakiegos taska,
+  result:= Assigned(FCurrentContext);
+end;
+
 procedure TojThread.setIgnoreUnhandledTaskExceptions(const Value: boolean);
 begin
   FIgnoreUnhandledTaskExceptions:= Value;
@@ -747,6 +924,11 @@ begin
   FSuccess:= Value;
 end;
 
+function TojThreadTaskContext.ThreadTerminated: boolean;
+begin
+  result:= FThread.Terminated;
+end;
+
 { TojTestThreadTask }
 
 constructor TojTestThreadTask.Create(TaskName: string; p_SleepMiliSec: Cardinal; p_ExceptionChance: byte);
@@ -768,6 +950,242 @@ begin
     then raise Exception.CreateFmt('TojTestThreadTask.Execute -> ExceptionChance = %d%%', [FExceptionChance]);
   end;
 
+end;
+
+{ TojThreadEx }
+
+procedure TojThreadEx.AddTask(Task: TojThreadTask);
+begin
+  FThread.TaskList.Add(Task);
+end;
+
+procedure TojThreadEx.AddTask(TaskName: string; ExceuteMethod, OnSuccess, OnFailure: TojTaskMethod);
+begin
+  self.AddTask(
+    TojMethodThreadTask.Create(TaskName, ExceuteMethod, OnSuccess, OnFailure)
+  );
+end;
+
+procedure TojThreadEx.AddTask(TaskName: string; ExceuteProc, OnSuccess, OnFailure: TojTaskProcedure);
+begin
+  self.AddTask(
+    TojAnonymousThreadTask.Create(TaskName, ExceuteProc, OnSuccess, OnFailure)
+  );
+end;
+
+constructor TojThreadEx.Create(TaskList: TojThreadTaskList);
+begin
+  inherited Create;
+  //  W¹tek ZAWSZE tworzony i od razu uruchamiany
+  FThread:= TojThread.Create(TaskList, TRUE);
+  FThread.FreeOnTerminate:= FALSE;
+  FThread.Start;
+end;
+
+destructor TojThreadEx.Destroy;
+begin
+  FThread.Terminate;
+  //  wersja oficjalna, w sumie chyba zvbedne bo kopiuj\wklej
+  FThread.WaitFor;
+  FreeAndNil(FThread);
+  inherited;
+end;
+
+function TojThreadEx.getIgnoreUnhandledTaskExceptions: boolean;
+begin
+  result:= FThread.IgnoreUnhandledTaskExceptions;
+end;
+
+function TojThreadEx.getOnExportMessage: TojThreadExportMessageEvent;
+begin
+  result:= FThread.OnThreadExportMesasge;
+end;
+
+function TojThreadEx.getOnTaskEndEvent: TojThreadTaskEvent;
+begin
+  result:= FThread.OnTaskEnd;
+end;
+
+function TojThreadEx.getOnTaskExceptionEvent: TojThreadTaskProcessExceptionEvent;
+begin
+  result:= FThread.OnThreadTaskException;
+end;
+
+function TojThreadEx.getOnTaskStart: TojThreadTaskEvent;
+begin
+  result:= FThread.OnTaskStart;
+end;
+
+function TojThreadEx.getOnThreadEnd: TojThreadEvent;
+begin
+  result:= FThread.OnThreadEnd;
+end;
+
+function TojThreadEx.getOnThreadException: TojThreadExceptionEvent;
+begin
+  result:= FThread.OnThreadException;
+end;
+
+function TojThreadEx.getOnThreadIdle: TojThreadEvent;
+begin
+  result:= FThread.OnThreadIdle
+end;
+
+function TojThreadEx.getOnThreadStart: TojThreadEvent;
+begin
+  result:= FThread.OnThreadStart;
+end;
+
+function TojThreadEx.IsExecuting: boolean;
+begin
+  result:= FThread.IsExecuting;
+end;
+
+function TojThreadEx.IsIdle: boolean;
+begin
+  result:= FThread.IsIdle;
+end;
+
+
+
+function TojThreadEx.IsWorking: boolean;
+begin
+  result:= FThread.IsWorking;
+end;
+
+procedure TojThreadEx.setIgnoreUnhandledTaskExceptions(const Value: boolean);
+begin
+  FThread.IgnoreUnhandledTaskExceptions:= Value;
+end;
+
+procedure TojThreadEx.setOnExportMessage(const Value: TojThreadExportMessageEvent);
+begin
+  FThread.OnThreadExportMesasge:= Value;
+end;
+
+procedure TojThreadEx.setOnTaskEndEvent(const Value: TojThreadTaskEvent);
+begin
+  FThread.OnTaskEnd:= Value;
+end;
+
+procedure TojThreadEx.setOnTaskExceptionEvent(const Value: TojThreadTaskProcessExceptionEvent);
+begin
+  FThread.OnThreadTaskException:= Value;
+end;
+
+procedure TojThreadEx.setOnTaskStart(const Value: TojThreadTaskEvent);
+begin
+  FThread.OnTaskStart:= Value;
+end;
+
+procedure TojThreadEx.setOnThreadEnd(const Value: TojThreadEvent);
+begin
+  FThread.OnThreadEnd:= Value;
+end;
+
+procedure TojThreadEx.setOnThreadException(const Value: TojThreadExceptionEvent);
+begin
+  FThread.OnThreadException:= Value;
+end;
+
+procedure TojThreadEx.setOnThreadIdle(const Value: TojThreadEvent);
+begin
+  FThread.OnThreadIdle:= Value;
+end;
+
+procedure TojThreadEx.setOnThreadStart(const Value: TojThreadEvent);
+begin
+  FThread.OnThreadStart:= Value;
+end;
+
+function TojThreadEx.TaskCount: integer;
+begin
+  result:= FThread.TaskList.Count;
+  if FThread.IsWorking then inc(result);
+end;
+
+procedure TojThreadEx.Terminate;
+begin
+  FThread.Terminate;
+end;
+
+function TojThreadEx.WaitForIdle(TimeOut: Cardinal; ProcessMessages: boolean): boolean;
+var v_tick: DWORD;
+const CNST_LOCAL_TIMEOUT = 25;
+begin
+  v_tick:= 0;
+  result:= IsIdle;
+
+  while (not result) AND ( (v_tick < TimeOut) OR (TimeOut = 0) ) do
+  begin
+    WaitForSingleObject(FThread.Handle, CNST_LOCAL_TIMEOUT);
+    if ProcessMessages then Application.ProcessMessages;
+    inc(v_tick, CNST_LOCAL_TIMEOUT);
+    // getTickCount
+
+    result:= IsIdle;
+  end;
+end;
+
+function TojThreadEx.WaitForTerm(TimeOut: Cardinal;  ProcessMessages: boolean): boolean;
+var v_tick: DWORD;
+const CNST_LOCAL_TIMEOUT = 25;
+begin
+  v_tick:= 0;
+  result:= FThread.Terminated AND (not IsExecuting);
+
+  while (not result) AND ( (v_tick < TimeOut) OR (TimeOut = 0) ) do
+  begin
+    WaitForSingleObject(FThread.Handle, CNST_LOCAL_TIMEOUT);
+    if ProcessMessages then Application.ProcessMessages;
+    inc(v_tick, CNST_LOCAL_TIMEOUT);
+
+    result:= FThread.Terminated AND (not IsExecuting);
+  end;
+end;
+
+{ TojAnonymousThreadTask }
+
+constructor TojAnonymousThreadTask.Create(TaskName: string; ExceuteProc, OnSuccess, OnFailure: TojTaskProcedure);
+begin
+  inherited Create(TaskName);
+  FExceuteProc:= ExceuteProc;
+  self.OnSuccessA:= OnSuccess;
+  self.OnFailureA:= OnFailure;
+end;
+
+procedure TojAnonymousThreadTask.DoTaskEndEvents(ctx: TojThreadTaskContext);
+begin
+  inherited;
+end;
+
+procedure TojAnonymousThreadTask.Execute(ctx: TojThreadTaskContext);
+begin
+  if Assigned(FExceuteProc)
+  then FExceuteProc(ctx)
+  else raise Exception.Create('TojAnonymousThreadTask.Execute -> ExceuteProc not assigned');
+end;
+
+{ TojMethodThreadTask }
+
+constructor TojMethodThreadTask.Create(TaskName: string; ExceuteMethod, OnSuccess, OnFailure: TojTaskMethod);
+begin
+  inherited Create(TaskName);
+  FExceuteMethod:= ExceuteMethod;
+  self.OnSuccess:= OnSuccess;
+  self.OnFailure:= OnFailure;
+end;
+
+procedure TojMethodThreadTask.DoTaskEndEvents(ctx: TojThreadTaskContext);
+begin
+  inherited;
+end;
+
+procedure TojMethodThreadTask.Execute(ctx: TojThreadTaskContext);
+begin
+  if Assigned(FExceuteMethod)
+  then FExceuteMethod(ctx)
+  else raise Exception.Create('TojMethodThreadTask.Execute -> FExceuteMethod not assigned');
 end;
 
 end.
