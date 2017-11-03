@@ -2,12 +2,17 @@
   2017-03-xx reset
   2017-10-xx reset
   2017-10-27 TojThreadEx
+
+  2017-11-03 observer
+
+  2017-11-03  TO DO -> WaitForTask
+
 *)
 unit ojThreadUtils;
 
 interface
 uses  Windows, classes, sysUtils, Forms, StdCtrls, Controls, Graphics, messages,
-      GraphUtil, Contnrs, DB, Variants, ExtCtrls;
+      GraphUtil, Contnrs, DB, Variants, ExtCtrls, ojMultiEvent;
 
 
 type
@@ -23,10 +28,24 @@ type
   TojThreadExceptionEvent = procedure(Sender: TObject; E:Exception) of object;
   TojThreadTaskProcessExceptionEvent = procedure(Sender: TojThreadTaskContext; E:Exception; var Handled: boolean) of object;
 
-  TojThreadTaskEvent = procedure(Sender: TojThreadTaskContext)of object;
+  TojTaskEvent = procedure(Sender: TojThreadTaskContext) of object;
 
   TojTaskMethod = procedure(ctx: TojThreadTaskContext) of object;
   TojTaskProcedure = reference to procedure(ctx: TojThreadTaskContext);
+
+  TojThreadEventKind= (teThreadStart, teThreadEnd, teThreadIdle,
+        teThreadException, teThreadTaskException,
+        teThreadTaskStart, teThreadTaskEnd,
+        teTaskStart, teTaskEnd, teThreadExportMessage );
+
+
+  TojThreadExportMessageMEvent = class(TojCustomMultiEvent)
+    procedure Broadcast(Observer: TMethod);override;
+  public
+    procedure Attach(Observer: TojThreadExportMessageEvent);
+    procedure DeAttach(Observer: TojThreadExportMessageEvent);
+    procedure Broadcast(Sender: TObject; const TextMessage: string; IsPublic: boolean);overload;
+  end;
 
 
   {$region 'TojThreadTaskList'}
@@ -59,8 +78,8 @@ type
   TojThreadTask = class
   private
     FTaskName: string;
-    FOnTaskStart: TojThreadTaskEvent;
-    FOnTaskEnd: TojThreadTaskEvent;
+    FOnTaskStart: TojTaskEvent;
+    FOnTaskEnd: TojTaskEvent;
     FOnTaskException: TojThreadTaskProcessExceptionEvent;
 
     FOnSuccess: TojTaskMethod;
@@ -79,8 +98,8 @@ type
   public
     property TaskName: string read FTaskName write FTaskName;
   public
-    property OnTaskStart: TojThreadTaskEvent read FOnTaskStart write FOnTaskStart;
-    property OnTaskEnd: TojThreadTaskEvent read FOnTaskEnd write FOnTaskEnd;
+    property OnTaskStart: TojTaskEvent read FOnTaskStart write FOnTaskStart;
+    property OnTaskEnd: TojTaskEvent read FOnTaskEnd write FOnTaskEnd;
     property OnTaskException: TojThreadTaskProcessExceptionEvent read FOnTaskException write FOnTaskException;
 
     property OnSuccess: TojTaskMethod read FOnSuccess write FOnSuccess;
@@ -114,7 +133,7 @@ type
     FExceuteProc: TojTaskProcedure;
   protected
     //  te sa synchronizowane przez watek
-    procedure DoTaskEndEvents(ctx: TojThreadTaskContext);virtual;
+    procedure DoTaskEndEvents(ctx: TojThreadTaskContext);override;
   public
     constructor Create(TaskName: string; ExceuteProc: TojTaskProcedure; OnSuccess: TojTaskProcedure; OnFailure: TojTaskProcedure);reintroduce;virtual;
     procedure Execute(ctx: TojThreadTaskContext);override;
@@ -130,11 +149,9 @@ type
   TojMethodThreadTask = class(TojThreadTask)
   private
     FExceuteMethod: TojTaskMethod;
-    FOnSuccess: TojTaskMethod;
-    FOnFailure: TojTaskMethod;
   protected
     //  te sa synchronizowane przez watek
-    procedure DoTaskEndEvents(ctx: TojThreadTaskContext);virtual;
+    procedure DoTaskEndEvents(ctx: TojThreadTaskContext);override;
   public
     constructor Create(TaskName: string; ExceuteMethod: TojTaskMethod; OnSuccess: TojTaskMethod; OnFailure: TojTaskMethod);reintroduce;virtual;
     procedure Execute(ctx: TojThreadTaskContext);override;
@@ -184,8 +201,11 @@ type
   {$region 'TojThread'}
 
   TojThread = class(TThread)
+
   private
     FTaskList: TojThreadTaskList;
+    FObservers: array[TojThreadEventKind] of TojCustomMultiEvent;
+
     FCurrentContext: TojThreadTaskContext;
     FIsExecuting: Variant;
     FIgnoreUnhandledTaskExceptions: boolean;
@@ -201,8 +221,8 @@ type
     FOnThreadException: TojThreadExceptionEvent;
     FOnThreadTaskException: TojThreadTaskProcessExceptionEvent;
 
-    FOnThreadTaskStart: TojThreadTaskEvent;
-    FOnThreadTaskEnd: TojThreadTaskEvent;
+    FOnThreadTaskStart: TojTaskEvent;
+    FOnThreadTaskEnd: TojTaskEvent;
 
     FOnThreadExportMessage: TojThreadExportMessageEvent;
   protected
@@ -216,6 +236,7 @@ type
     procedure DoThreadTaskEnd;virtual;
     procedure DoHandleThreadException;virtual;
     //  dla Task-a, bezparametrowe procedury zeby dzialaly z Synchronize
+     //  uruchamianj¹ zdarzenia w Tasku
     procedure DoTaskStart;virtual;
     procedure DoTaskEnd;virtual;
     //  mix Thread i Task-a
@@ -231,12 +252,17 @@ type
     procedure HandleThreadException;virtual;
     //  g³owne zdarzenie po stronie Task-a
     //  metody do odpalania wlasciwej obslugi poprzez synchronize
+    //  uruchamianj¹ zdarzenia w Tasku
     procedure TaskStart;
     procedure TaskEnd;
     //  mix Thread i Task-a
     procedure HandleThreadTaskException;
 
     procedure ExportMesasge(const TextMessage: string; IsPublic: boolean);
+
+  protected
+    procedure registerObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+    procedure unRegisterObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
   public
     constructor Create(TaskList: TojThreadTaskList; CreateSuspended: boolean = TRUE);reintroduce;virtual;
     destructor Destroy;override;
@@ -252,8 +278,8 @@ type
     property OnThreadIdle: TojThreadEvent read FOnThreadIdle write FOnThreadIdle;
     property OnThreadException: TojThreadExceptionEvent read FOnThreadException write FOnThreadException;
     property OnThreadTaskException: TojThreadTaskProcessExceptionEvent read FOnThreadTaskException write FOnThreadTaskException;
-    property OnTaskStart: TojThreadTaskEvent read FOnThreadTaskStart write FOnThreadTaskStart;
-    property OnTaskEnd: TojThreadTaskEvent read FOnThreadTaskEnd write FOnThreadTaskEnd;
+    property OnTaskStart: TojTaskEvent read FOnThreadTaskStart write FOnThreadTaskStart;
+    property OnTaskEnd: TojTaskEvent read FOnThreadTaskEnd write FOnThreadTaskEnd;
     property OnThreadExportMesasge: TojThreadExportMessageEvent read FOnThreadExportMessage write FOnThreadExportMessage;
   end;
 
@@ -273,10 +299,10 @@ type
     procedure setOnThreadStart(const Value: TojThreadEvent);
     function getOnThreadException: TojThreadExceptionEvent;
     procedure setOnThreadException(const Value: TojThreadExceptionEvent);
-    function getOnTaskEndEvent: TojThreadTaskEvent;
-    function getOnTaskStart: TojThreadTaskEvent;
-    procedure setOnTaskEndEvent(const Value: TojThreadTaskEvent);
-    procedure setOnTaskStart(const Value: TojThreadTaskEvent);
+    function getOnTaskEndEvent: TojTaskEvent;
+    function getOnTaskStart: TojTaskEvent;
+    procedure setOnTaskEndEvent(const Value: TojTaskEvent);
+    procedure setOnTaskStart(const Value: TojTaskEvent);
     function getOnTaskExceptionEvent: TojThreadTaskProcessExceptionEvent;
     procedure setOnTaskExceptionEvent(const Value: TojThreadTaskProcessExceptionEvent);
     function getOnExportMessage: TojThreadExportMessageEvent;
@@ -294,13 +320,16 @@ type
     function WaitForTerm(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
     function TaskCount: integer;
 
+    procedure registerObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+    procedure unRegisterObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+
     property IgnoreUnhandledTaskExceptions: boolean read getIgnoreUnhandledTaskExceptions write setIgnoreUnhandledTaskExceptions;
     property OnThreadStart: TojThreadEvent read getOnThreadStart write setOnThreadStart;
     property OnThreadEnd: TojThreadEvent read getOnThreadEnd write setOnThreadEnd;
     property OnThreadIdle: TojThreadEvent read getOnThreadIdle write setOnThreadIdle;
     property OnThreadException: TojThreadExceptionEvent read getOnThreadException write setOnThreadException;
-    property OnTaskStart: TojThreadTaskEvent read getOnTaskStart write setOnTaskStart;
-    property OnTaskEnd: TojThreadTaskEvent read getOnTaskEndEvent write setOnTaskEndEvent;
+    property OnTaskStart: TojTaskEvent read getOnTaskStart write setOnTaskStart;
+    property OnTaskEnd: TojTaskEvent read getOnTaskEndEvent write setOnTaskEndEvent;
     property OnTaskException: TojThreadTaskProcessExceptionEvent read getOnTaskExceptionEvent write setOnTaskExceptionEvent;
     property OnExportMessage: TojThreadExportMessageEvent read getOnExportMessage write setOnExportMessage;
   end;
@@ -323,10 +352,10 @@ type
     procedure setOnThreadStart(const Value: TojThreadEvent);
     function getOnThreadException: TojThreadExceptionEvent;
     procedure setOnThreadException(const Value: TojThreadExceptionEvent);
-    function getOnTaskEndEvent: TojThreadTaskEvent;
-    function getOnTaskStart: TojThreadTaskEvent;
-    procedure setOnTaskEndEvent(const Value: TojThreadTaskEvent);
-    procedure setOnTaskStart(const Value: TojThreadTaskEvent);
+    function getOnTaskEndEvent: TojTaskEvent;
+    function getOnTaskStart: TojTaskEvent;
+    procedure setOnTaskEndEvent(const Value: TojTaskEvent);
+    procedure setOnTaskStart(const Value: TojTaskEvent);
     function getOnTaskExceptionEvent: TojThreadTaskProcessExceptionEvent;
     procedure setOnTaskExceptionEvent(const Value: TojThreadTaskProcessExceptionEvent);
     function getOnExportMessage: TojThreadExportMessageEvent;
@@ -348,14 +377,17 @@ type
     //  function WaitForTask(TimeOut: Cardinal = 0; ProcessMessages: boolean = TRUE): boolean;
 
     function TaskCount: integer;
+
+    procedure registerObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+    procedure unRegisterObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
   public
     property IgnoreUnhandledTaskExceptions: boolean read getIgnoreUnhandledTaskExceptions write setIgnoreUnhandledTaskExceptions;
     property OnThreadStart: TojThreadEvent read getOnThreadStart write setOnThreadStart;
     property OnThreadEnd: TojThreadEvent read getOnThreadEnd write setOnThreadEnd;
     property OnThreadIdle: TojThreadEvent read getOnThreadIdle write setOnThreadIdle;
     property OnThreadException: TojThreadExceptionEvent read getOnThreadException write setOnThreadException;
-    property OnTaskStart: TojThreadTaskEvent read getOnTaskStart write setOnTaskStart;
-    property OnTaskEnd: TojThreadTaskEvent read getOnTaskEndEvent write setOnTaskEndEvent;
+    property OnTaskStart: TojTaskEvent read getOnTaskStart write setOnTaskStart;
+    property OnTaskEnd: TojTaskEvent read getOnTaskEndEvent write setOnTaskEndEvent;
     property OnTaskException: TojThreadTaskProcessExceptionEvent read getOnTaskExceptionEvent write setOnTaskExceptionEvent;
     property OnExportMessage: TojThreadExportMessageEvent read getOnExportMessage write setOnExportMessage;
   end;
@@ -464,18 +496,6 @@ begin
   end;
 end;
 
-//function TojThreadTaskList.PopPreview: TojThreadTask;
-//begin
-//  LockList;
-//  try
-//    if FList.Count > 0
-//    then result:= TojThreadTask(FList.First)
-//    else result:= nil;
-//  finally
-//    UnlockList;
-//  end;
-//end;
-
 procedure TojThreadTaskList.UnlockList;
 begin
   LeaveCriticalSection(FLock);
@@ -487,9 +507,6 @@ constructor TojThreadTask.Create(TaskName: string);
 begin
   inherited Create;
   FTaskName:= TaskName;
-  //  FOnTaskStart:= nil;
-  //  FOnTaskEnd:= nil;
-  //  FOnTaskException:= nil;
 end;
 
 procedure TojThreadTask.DoTaskEndEvents(ctx: TojThreadTaskContext);
@@ -523,9 +540,12 @@ end;
 
 constructor TojThread.Create(TaskList: TojThreadTaskList; CreateSuspended: boolean);
 begin
+
   if Assigned(TaskList)
   then FTaskList:= TaskList
   else FTaskList:= TojThreadTaskList.Create;
+
+  ZeroMemory(@FObservers, SizeOf(FObservers));
 
   FCurrentContext:= nil;
   FIsExecuting:= NULL;
@@ -539,7 +559,12 @@ begin
 end;
 
 destructor TojThread.Destroy;
+var v_kind: TojThreadEventKind;
 begin
+  for v_kind:= Low(TojThreadEventKind) to High(TojThreadEventKind) do
+    if FObservers[v_kind] <> nil
+    then FreeAndNil(FObservers[v_kind]);
+
   FreeAndNil(FTaskList);
   inherited;
 end;
@@ -578,37 +603,57 @@ end;
 
 procedure TojThread.DoTaskEnd;
 begin
+  //  nie ma tutaj Observatorow, tylko forward do Taska i niech on sobie radzi
   if Assigned(FCurrentContext) then FCurrentContext.Task.DoTaskEndEvents(FCurrentContext);
 end;
 
 procedure TojThread.DoTaskStart;
 begin
+  //  nie ma tutaj Observatorow, tylko forward do Taska i niech on sobie radzi
   if Assigned(FCurrentContext) then FCurrentContext.Task.DoTaskStartEvents(FCurrentContext);
 end;
 
 procedure TojThread.DoThreadEnd;
 begin
   if Assigned(FOnThreadEnd) then FOnThreadEnd(nil);
+  if FObservers[teThreadEnd] <> nil
+  then TojNotifyMultiEvent(FObservers[teThreadEnd]).Broadcast(nil);
 end;
 
 procedure TojThread.DoThreadIdle;
 begin
   if Assigned(FOnThreadIdle) then FOnThreadIdle(nil);
+  if FObservers[teThreadIdle] <> nil
+  then TojNotifyMultiEvent(FObservers[teThreadIdle]).Broadcast(nil);
 end;
 
 procedure TojThread.DoThreadStart;
 begin
   if Assigned(FOnThreadStart) then FOnThreadStart(nil);
+  if FObservers[teThreadStart] <> nil
+  then TojNotifyMultiEvent(FObservers[teThreadStart]).Broadcast(nil);
 end;
 
 procedure TojThread.DoThreadTaskEnd;
 begin
-  if Assigned(FOnThreadTaskEnd) AND Assigned(FCurrentContext) then FOnThreadTaskEnd(FCurrentContext);
+  if Assigned(FCurrentContext) then
+  begin
+    if Assigned(FOnThreadTaskEnd) then FOnThreadTaskEnd(FCurrentContext);
+
+    if FObservers[teThreadTaskEnd] <> nil
+    then TojNotifyMultiEvent(FObservers[teThreadTaskEnd]).Broadcast(FCurrentContext);
+  end;
 end;
 
 procedure TojThread.DoThreadTaskStart;
 begin
-  if Assigned(FOnThreadTaskStart) AND Assigned(FCurrentContext) then FOnThreadTaskStart(FCurrentContext);
+  if Assigned(FCurrentContext) then
+  begin
+    if Assigned(FOnThreadTaskStart) then FOnThreadTaskStart(FCurrentContext);
+
+    if FObservers[teThreadTaskStart] <> nil
+    then TojNotifyMultiEvent(FObservers[teThreadTaskStart]).Broadcast(FCurrentContext);
+  end;
 end;
 
 procedure TojThread.Execute;
@@ -654,10 +699,10 @@ begin
                 end;
 
               finally
-                //  zdarzenia Thread-a - koniec taska, w kontekscie info czy babolem czy OK
-                ThreadTaskEnd;
                 //  zdarzenia Task-a - koniec taska, w kontekscie info czy babolem czy OK
                 TaskEnd;
+                //  zdarzenia Thread-a - koniec taska, w kontekscie info czy babolem czy OK
+                ThreadTaskEnd;
               end;
             FINALLY
               //  oddzielne finally na wypadek baboli w zdarzeniach obslugi konca Taska
@@ -685,83 +730,26 @@ begin
     FIsExecuting:= FALSE;
   END;
 
-  EXIT;
-{
-  TRY
-    ThreadStart;
-    TRY
-
-      while not self.Terminated do
-      begin
-
-        if FTaskList.AtLeast then
-        begin
-
-          while not self.Terminated AND FTaskList.AtLeast do
-          begin
-
-            FCurrentContext:= TojThreadTaskContext.Create(self, FTaskList.Pop);
-            TRY
-              try
-                try
-                  ProcessThreadTaskStart; //  zdarzenia Thread-a - start taska
-                  ProcessTaskStart;       //  zdarzenia Taska-a - start taska
-
-                  FCurrentContext.Task.Execute(FCurrentContext);
-                  FCurrentContext.setSuccess( TRUE );
-                except
-                  FCurrentContext.setSuccess( FALSE );
-                  ProcessHandleTaskException;
-
-                  if not FCurrentContext.ExceptionHandled then
-                  begin
-                    if FIgnoreUnhandledTaskExceptions
-                    then ForwardLog('ignoring unhandled task exception', FCurrentContext.Task.TaskName, tltDebug)
-                    else raise;
-                  end;
-                end;
-
-              finally
-                ProcessThreadTaskEnd;   //  zdarzenia Thread-a - koniec taska
-                ProcessTaskEnd;         //  zdarzenia Taska-a - koniec taska
-              end;
-            FINALLY
-              //  oddzielne finally na wypadek baboli w zdarzeniach obslugi konca Taska
-              FreeAndNil(FCurrentContext);
-            END;
-          end;
-
-          ThreadIdle; //  wyczyscil liste tasków wiec zdarzenie
-        end;
-
-        Sleep(CNST_LOCAL_TIMEOUT);
-      end;  //  while not self.Terminated do
-
-    EXCEPT
-      HandleThreadException;
-      //  jak TaskEndCallBack lub AfterTask siê posypie to tytaj wczyscimy
-      //  FreeAndNil(FCurrentTask);
-      //  FCurrentContext:= nil;
-      //  nie ma prawa sie pojawic bo zwalnianie FCurrentContext jest niezaleznym finally
-      FreeandNil(FCurrentContext);
-    END;
-
-  FINALLY
-    ThreadEnd;
-    FIsExecuting:= FALSE;
-  END;
-
-}
 end;
 
 procedure TojThread.ExportMesasge(const TextMessage: string; IsPublic: boolean);
 begin
   //  na ³atwizne,
-  if Assigned(FOnThreadExportMessage)
+  if Assigned(FOnThreadExportMessage)// OR (FListenersStats[teThreadExportMessage] > 0)
   then self.Synchronize(
       procedure()
+//      var v_list: TObjectList;
+//          v_item: Pointer;
       begin
         FOnThreadExportMessage(nil, TextMessage, IsPublic);
+
+//        v_list:= buildListenersList(teThreadExportMessage);
+//        try
+//          for v_item in v_list do
+//            TojThreadEventListener(v_item).OnThreadExportMessage(nil, TextMessage, IsPublic);
+//        finally
+//          FreeAndNil(v_list);
+//        end;
       end
       );
 end;
@@ -839,6 +827,57 @@ begin
   result:= Assigned(FCurrentContext);
 end;
 
+procedure TojThread.registerObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+var v_maper: array[TojThreadEventKind] of TojCustomMultiEventClass;
+begin
+  //  podpinamy tylko te z Threada jawnie dostepne
+  v_maper[teThreadStart]:= TojNotifyMultiEvent;
+  v_maper[teThreadEnd]:= TojNotifyMultiEvent;
+  v_maper[teThreadIdle]:= TojNotifyMultiEvent;
+  v_maper[teThreadException]:= nil;
+  v_maper[teThreadTaskException]:= nil;
+  v_maper[teThreadTaskStart]:= TojNotifyMultiEvent;
+  v_maper[teThreadTaskEnd]:= TojNotifyMultiEvent;
+  v_maper[teTaskStart]:= nil;
+  v_maper[teTaskEnd ]:= nil;
+  v_maper[teThreadExportMessage]:= TojThreadExportMessageMEvent;
+
+  if (FObservers[p_ListenFor] = nil)
+  then if (v_maper[p_ListenFor] = nil)
+       then raise Exception.Create('TojThread.registerObserver -> brak mapowania')
+       else FObservers[p_ListenFor]:= v_maper[p_ListenFor].Create;
+
+  FObservers[p_ListenFor].Attach(Observer);
+end;
+
+
+procedure TojThread.unRegisterObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+begin
+  if FObservers[p_ListenFor] = nil
+  then Exit;
+
+  FObservers[p_ListenFor].DeAttach(Observer);
+end;
+
+//procedure TojThread.registerListener(Listener: TojThreadEventListener; p_ListenFor: TojThreadEvents);
+//var v_item: TListenerData;
+//    v_event: TojThreadEventKind;
+//begin
+//  //  Lock !!!
+//  if (p_ListenFor = [])
+//    OR not Assigned(Listener)
+//    OR (FListeners.IndexOf(Listener) >= 0)
+//  then Exit;
+//
+//  v_item:= TListenerData.Create;
+//  v_item.Listener:= Listener;
+//  v_item.ListenFor:= p_ListenFor;
+//
+//  FListeners.Add(v_item);
+//  for v_event in p_ListenFor do
+//    FListenersStats[v_event]:= FListenersStats[v_event]+1;
+//end;
+
 procedure TojThread.setIgnoreUnhandledTaskExceptions(const Value: boolean);
 begin
   FIgnoreUnhandledTaskExceptions:= Value;
@@ -871,13 +910,18 @@ end;
 
 procedure TojThread.ThreadTaskEnd;
 begin
-  if Assigned(FOnThreadTaskEnd) AND Assigned(FCurrentContext) then Synchronize(DoThreadTaskEnd);
+  if Assigned(FCurrentContext)
+     AND (Assigned(FOnThreadTaskEnd) OR Assigned(FObservers[teThreadTaskEnd]))
+  then Synchronize(DoThreadTaskEnd);
 end;
 
 procedure TojThread.ThreadTaskStart;
 begin
-  if Assigned(FOnThreadTaskStart) AND Assigned(FCurrentContext) then Synchronize(DoThreadTaskStart);
+  if Assigned(FCurrentContext)
+     AND (Assigned(FOnThreadTaskStart) OR Assigned(FObservers[teThreadTaskStart]))
+  then Synchronize(DoThreadTaskStart);
 end;
+
 
 { TojThreadTaskContext }
 
@@ -1001,7 +1045,7 @@ begin
   result:= FThread.OnThreadExportMesasge;
 end;
 
-function TojThreadEx.getOnTaskEndEvent: TojThreadTaskEvent;
+function TojThreadEx.getOnTaskEndEvent: TojTaskEvent;
 begin
   result:= FThread.OnTaskEnd;
 end;
@@ -1011,7 +1055,7 @@ begin
   result:= FThread.OnThreadTaskException;
 end;
 
-function TojThreadEx.getOnTaskStart: TojThreadTaskEvent;
+function TojThreadEx.getOnTaskStart: TojTaskEvent;
 begin
   result:= FThread.OnTaskStart;
 end;
@@ -1046,11 +1090,14 @@ begin
   result:= FThread.IsIdle;
 end;
 
-
-
 function TojThreadEx.IsWorking: boolean;
 begin
   result:= FThread.IsWorking;
+end;
+
+procedure TojThreadEx.registerObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+begin
+  FThread.registerObserver(Observer, p_ListenFor);
 end;
 
 procedure TojThreadEx.setIgnoreUnhandledTaskExceptions(const Value: boolean);
@@ -1063,7 +1110,7 @@ begin
   FThread.OnThreadExportMesasge:= Value;
 end;
 
-procedure TojThreadEx.setOnTaskEndEvent(const Value: TojThreadTaskEvent);
+procedure TojThreadEx.setOnTaskEndEvent(const Value: TojTaskEvent);
 begin
   FThread.OnTaskEnd:= Value;
 end;
@@ -1073,7 +1120,7 @@ begin
   FThread.OnThreadTaskException:= Value;
 end;
 
-procedure TojThreadEx.setOnTaskStart(const Value: TojThreadTaskEvent);
+procedure TojThreadEx.setOnTaskStart(const Value: TojTaskEvent);
 begin
   FThread.OnTaskStart:= Value;
 end;
@@ -1107,6 +1154,11 @@ end;
 procedure TojThreadEx.Terminate;
 begin
   FThread.Terminate;
+end;
+
+procedure TojThreadEx.unRegisterObserver(Observer: TMethod; p_ListenFor: TojThreadEventKind);
+begin
+  FThread.unRegisterObserver(Observer, p_ListenFor);
 end;
 
 function TojThreadEx.WaitForIdle(TimeOut: Cardinal; ProcessMessages: boolean): boolean;
@@ -1186,6 +1238,38 @@ begin
   if Assigned(FExceuteMethod)
   then FExceuteMethod(ctx)
   else raise Exception.Create('TojMethodThreadTask.Execute -> FExceuteMethod not assigned');
+end;
+
+{ TojThreadExportMessageMEvent }
+
+procedure TojThreadExportMessageMEvent.Attach(Observer: TojThreadExportMessageEvent);
+begin
+  inherited Attach(TMethod(Observer));
+end;
+
+procedure TojThreadExportMessageMEvent.Broadcast(Sender: TObject; const TextMessage: string; IsPublic: boolean);
+begin
+  paramsClear;
+  paramsAdd( NativeUInt(Sender) );
+  paramsAdd( TextMessage );
+  paramsAdd( IsPublic );
+  inherited Broadcast;
+end;
+
+procedure TojThreadExportMessageMEvent.DeAttach(Observer: TojThreadExportMessageEvent);
+begin
+  inherited DeAttach(TMethod(Observer));
+end;
+
+procedure TojThreadExportMessageMEvent.Broadcast(Observer: TMethod);
+var v_sender: TObject;
+begin
+  inherited;
+  v_sender:= TObject(NativeUInt(paramsValue(0)));
+
+  TojThreadExportMessageEvent(Observer)(v_sender, paramsValue(1), paramsValue(2) );
+
+
 end;
 
 end.
