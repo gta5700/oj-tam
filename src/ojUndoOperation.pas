@@ -40,8 +40,8 @@ type
     procedure DoUndo; override;
     procedure DoRedo; override;
   public
-    constructor Create(p_Object: TObject; p_PropertyName: string; p_NewValue: Variant);overload; virtual;
-    constructor Create(p_Object: TObject; p_PropertyName: TRttiProperty; p_NewValue: Variant);overload; virtual;
+    constructor Create(p_Object: TObject; p_PropertyName: string; p_NewValue: Variant);reintroduce; overload; virtual;
+    constructor Create(p_Object: TObject; p_PropertyName: TRttiProperty; p_NewValue: Variant);reintroduce; overload; virtual;
     destructor Destroy;override;
   end;
 
