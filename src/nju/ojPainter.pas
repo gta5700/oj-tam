@@ -31,15 +31,53 @@ type
   end;
 
   TojGradientPainter = class(TojCustomPainter)
+  {
+    TgzGradientProfile = (gpCustom, gpSzary, gpCzarny, gpInfo, gpInfoOpera, gpWarning, gpError,
+                        gpPasekPrzyciskow, gpPasekInfo, gpTestowanie, gpDarkBlue, gpMainToolBar,
+                        gpMainToolBar2);
+  }
+
+  public type
+    TojGradientProfile = (gpCustom,
+          gpInfo, gpWarning, gpError,
+          gpBlack, gpSkyBlue, gpMedGray
+          //  gpM2ERP
+          );
+  public const
+    Profile: array[TojGradientProfile] of record
+      StartColor: TColor;
+      EndColor: TColor;
+    end = (
+      (StartColor: clBtnFace; EndColor: clBtnFace),
+
+      (StartColor: clWhite; EndColor: clBtnFace),       //  gpInfo
+      (StartColor: clBtnFace;  EndColor: clMedGray),    //  gcWarrning
+      (StartColor: clYellow;  EndColor: clRed),         //  gcError
+
+      (StartColor: clBtnFace; EndColor: clBlack),
+      (StartColor: clWhite; EndColor: clSkyBlue),
+      (StartColor: clWhite; EndColor: clMedGray)
+
+      //  (StartColor: clWebGainsboro; EndColor: clWebLightSlateGray) //  gpPasekPrzyciskow  M2ERP
+      //  (StartColor: 6477360; EndColor: 3372566)
+      //  (StartColor: clSkyBlue; EndColor: clMedGray)       // gpDarkBlue
+      //  (StartColor: clWebLightSkyBlue; EndColor: clWebLightSlateGray)         //gpMainToolbar
+      //  (StartColor: clWebLightSlateGray; EndColor: clWebLavenderBlush)         //gpMainToolbar2
+    );
   private
-    FGradientStopColor: TColor;
+    FGradientProfile: TojGradientProfile;
+    FGradientEndColor: TColor;
     FGradientStartColor: TColor;
+    procedure setGradientProfile(const Value: TojGradientProfile);
+    procedure setGradientStartColor(const Value: TColor);
+    procedure setGradientEndColor(const Value: TColor);
   protected
     procedure Paint(Canvas: TCanvas; DrawContext: Pointer);override;
   public
     constructor Create(PaintedControl: TControl; DrawContext: Pointer);override;
-    property GradientStartColor: TColor read FGradientStartColor write FGradientStartColor;
-    property GradientStopColor: TColor read FGradientStopColor write FGradientStopColor;
+    property GradientProfile: TojGradientProfile read FGradientProfile write setGradientProfile;
+    property GradientStartColor: TColor read FGradientStartColor write setGradientStartColor;
+    property GradientEndColor: TColor read FGradientEndColor write setGradientEndColor;
   end;
 
 
@@ -196,15 +234,46 @@ end;
 constructor TojGradientPainter.Create(PaintedControl: TControl; DrawContext: Pointer);
 begin
   inherited Create(PaintedControl, DrawContext);
-  FGradientStopColor:= clSkyBlue;
-  FGradientStartColor:= clWhite;
+
+  setGradientProfile( gpInfo );
 end;
 
 procedure TojGradientPainter.Paint(Canvas: TCanvas; DrawContext: Pointer);
 var v_rect: TRect;
 begin
   v_rect:= PaintedControl.ClientRect;
-  GradientFillCanvas(Canvas, clWhite, clSkyBlue, v_rect, gdVertical);
+  GradientFillCanvas(Canvas, FGradientStartColor, FGradientEndColor, v_rect, gdVertical);
+end;
+
+procedure TojGradientPainter.setGradientEndColor(const Value: TColor);
+begin
+  if FGradientEndColor <> Value then
+  begin
+    FGradientEndColor:= Value;
+    FGradientProfile:= gpCustom;
+  end
+end;
+
+procedure TojGradientPainter.setGradientProfile(const Value: TojGradientProfile);
+begin
+  if FGradientProfile <> Value then
+  begin
+    FGradientProfile:= Value;
+    if FGradientProfile <> gpCustom then
+    begin
+      FGradientStartColor:= self.Profile[FGradientProfile].StartColor;
+      FGradientEndColor:= self.Profile[FGradientProfile].EndColor;
+    end;
+  end;
+end;
+
+procedure TojGradientPainter.setGradientStartColor(const Value: TColor);
+begin
+  if FGradientStartColor <> Value then
+  begin
+    FGradientStartColor:= Value;
+    FGradientProfile:= gpCustom;
+  end
 end;
 
 end.

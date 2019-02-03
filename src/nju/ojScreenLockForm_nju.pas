@@ -259,7 +259,7 @@ begin
   Position:= poOwnerFormCenter;
   self.KeyPreview:= TRUE;
   //  fsStayOnTop stawarza problemy przy minimalizacji, przez klikniecie na pasek zadan
-  // FormStyle:= fsStayOnTop;
+  //  FormStyle:= fsStayOnTop;
 
 
   self.Width:= 350;

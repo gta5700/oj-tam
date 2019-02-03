@@ -430,8 +430,11 @@ begin
     //
   end;
   //  kazde wywolanie Lock to nowy kontext i np nowy caption
-  if Assigned(FScreenLockForm) AND Assigned(FScreenLockForm.DefaultPainter)
-  then FScreenLockForm.DefaultPainter.Invalidate;
+  //  if Assigned(FScreenLockForm) AND Assigned(FScreenLockForm.DefaultPainter)
+  //  then FScreenLockForm.DefaultPainter.Invalidate
+  //  werjsa przez DefaultPainter ma jakiegos LAG-a
+  if Assigned(FScreenLockForm)
+  then FScreenLockForm.Invalidate;
 end;
 
 function TojRootScreenLockContext.LockTime: TTime;

@@ -699,7 +699,8 @@ begin
                 {$endregion 'obsluga task.execute'}
               end;
 
-              ThreadIdle; //  wyczyscil liste tasków wiec zdarzenie
+              //  wyczyscil liste tasków wiec zdarzenie, tylko raz dla kazdego oczyszczenia listy tasków
+              ThreadIdle;
             end;
 
             Sleep(CNST_LOCAL_TIMEOUT);
@@ -719,8 +720,10 @@ begin
         begin
           //  tytaj g³ownie lapiemy wyjatki z powstale w metodzie ThreadException :)
           if FIgnoreUnhandledThreadExceptions
+          //  zaloguj ze topimy wyj¹tek i wróc do wykonywania kolejnego TASK-a
           then ExportMessage('ignoring unhandled THREAD exception, keep working -> '+E.Message, '', tmtDebug)
-          else raise;  //  podnosimy wyj¹tek, wyskakujemy  z pêtli i trafiamy do FINALLY
+          //  podnosimy wyj¹tek, wyskakujemy  z pêtli i trafiamy do FINALLY
+          else raise;
         end;
       END;
 
