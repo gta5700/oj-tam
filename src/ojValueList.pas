@@ -296,7 +296,7 @@ end;
 
 function TojVariantList.getEnumerator: TojVariantListIterator;
 begin
-  result:= getData.getEnumerator;
+  result:= checkData.getEnumerator;
 end;
 
 function TojVariantList.getItems(Index: integer): Variant;

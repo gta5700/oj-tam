@@ -15,7 +15,7 @@ type
 
     procedure Add(const Value: Int64);overload;
     procedure Add(const Values: array of Int64); overload;
-    procedure Add(const Values: string; Separator: string = ',');overload;
+    procedure Add(const Values: string; Separator: string = ','); overload;
 
     procedure Insert(Index: Integer; const Value: Int64);overload;
     procedure Insert(Index: Integer; const Values: array of Int64); overload;
@@ -237,7 +237,7 @@ end;
 
 function TojIntegerList.getEnumerator: TojIntegerListIterator;
 begin
-  result:= getData.getEnumerator;
+  result:= checkData.getEnumerator;
 end;
 
 function TojIntegerList.getItems(Index: integer): Int64;
