@@ -15,13 +15,14 @@ type
 
     procedure Add(const Value: Int64);overload;
     procedure Add(const Values: array of Int64); overload;
-    procedure Add(const Values: string; Separator: string = ',');overload;
+    procedure Add(const Values: string; Separator: string = ','; p_TrimBrackets: boolean = TRUE); overload;
 
     procedure Insert(Index: Integer; const Value: Int64);overload;
     procedure Insert(Index: Integer; const Values: array of Int64); overload;
-    procedure Insert(Index: Integer; const Values: string; Separator: string = ',');overload;
+    procedure Insert(Index: Integer; const Values: string; Separator: string = ','; p_TrimBrackets: boolean = TRUE);overload;
 
     procedure Remove(Value: Int64);
+    procedure RemoveAll(Value: Int64);
     function IndexOf(Value: Int64): integer;
 
     function First: Int64;
@@ -64,13 +65,14 @@ type
     procedure Clear; virtual;
     procedure Add(const Value: Int64);overload;
     procedure Add(const Values: array of Int64); overload;
-    procedure Add(const Values: string; Separator: string = ',');overload;
+    procedure Add(const Values: string; Separator: string = ','; p_TrimBrackets: boolean = TRUE);overload;
 
     procedure Insert(Index: integer; const Value: Int64); overload;
     procedure Insert(Index: Integer; const Values: array of Int64); overload;
-    procedure Insert(Index: Integer; const Values: string; Separator: string = ',');overload;
+    procedure Insert(Index: Integer; const Values: string; Separator: string = ','; p_TrimBrackets: boolean = TRUE);overload;
 
     procedure Remove(Value: Int64);
+    procedure RemoveAll(Value: Int64);
     function IndexOf(Value: Int64): integer;
 
     function First: Int64;
@@ -126,13 +128,14 @@ type
     procedure Clear;
     procedure Add(const Value: Int64);overload;
     procedure Add(const Values: array of int64); overload;
-    procedure Add(const Values: string; Separator: string = ',');overload;
+    procedure Add(const Values: string; Separator: string = ','; p_TrimBrackets: boolean = TRUE);overload;
 
     procedure Insert(Index: integer; const Value: Int64); overload;
     procedure Insert(Index: Integer; const Values: array of Int64); overload;
-    procedure Insert(Index: Integer; const Values: string; Separator: string = ',');overload;
+    procedure Insert(Index: Integer; const Values: string; Separator: string = ','; p_TrimBrackets: boolean = TRUE);overload;
 
     procedure Remove(Value: Int64);
+    procedure RemoveAll(Value: Int64);
     function IndexOf(Value: Int64): integer;
 
     function First: Int64;
@@ -161,8 +164,10 @@ type
 
     class operator Add(a: TojIntegerList; b: Int64): TojIntegerList;
     class operator Add(a: Int64; b: TojIntegerList): TojIntegerList;
-
     class operator Add(a: TojIntegerList; b: TojIntegerList): TojIntegerList;
+
+    class operator Subtract(a: TojIntegerList; b: Int64): TojIntegerList;
+    class operator Subtract(a: TojIntegerList; b: TojIntegerList): TojIntegerList;
 
     //    class operator Subtract(a: TojInt64; b: TojInt64) : TojInt64;
     class operator Equal(a: TojIntegerList; b: TojIntegerList):boolean;
@@ -237,7 +242,7 @@ end;
 
 function TojIntegerList.getEnumerator: TojIntegerListIterator;
 begin
-  result:= getData.getEnumerator;
+  result:= checkData.getEnumerator;
 end;
 
 function TojIntegerList.getItems(Index: integer): Int64;
@@ -261,9 +266,9 @@ begin
   result:= getData.IndexOf(Value);
 end;
 
-procedure TojIntegerList.Insert(Index: Integer; const Values: string; Separator: string);
+procedure TojIntegerList.Insert(Index: Integer; const Values: string; Separator: string; p_TrimBrackets: boolean);
 begin
-  checkData.Insert(Index, Values, Separator);
+  checkData.Insert(Index, Values, Separator, p_TrimBrackets);
   buildRAW;
 end;
 
@@ -310,6 +315,12 @@ begin
   buildRAW;
 end;
 
+procedure TojIntegerList.RemoveAll(Value: Int64);
+begin
+  checkData.RemoveAll(Value);
+  buildRAW;
+end;
+
 procedure TojIntegerList.RemoveDuplicates;
 begin
   checkData.RemoveDuplicates;
@@ -319,6 +330,7 @@ end;
 procedure TojIntegerList.setItems(Index: integer; const Value: Int64);
 begin
   checkData[Index]:= Value;
+  buildRAW;
 end;
 
 procedure TojIntegerList.Add(const Values: array of Int64);
@@ -327,9 +339,9 @@ begin
   buildRAW;
 end;
 
-procedure TojIntegerList.Add(const Values: string; Separator: string);
+procedure TojIntegerList.Add(const Values: string; Separator: string; p_TrimBrackets: boolean);
 begin
-  checkData.Add(Values, Separator);
+  checkData.Add(Values, Separator, p_TrimBrackets);
   buildRAW;
 end;
 
@@ -352,6 +364,20 @@ procedure TojIntegerList.Sort;
 begin
   checkData.Sort;
   buildRAW;
+end;
+
+class operator TojIntegerList.Subtract(a, b: TojIntegerList): TojIntegerList;
+var v_value: Int64;
+begin
+  result:= a;
+  for v_value in b do
+    result.RemoveAll(v_value);
+end;
+
+class operator TojIntegerList.Subtract(a: TojIntegerList; b: Int64): TojIntegerList;
+begin
+  result:= a;
+  result.RemoveAll(b);
 end;
 
 function TojIntegerList.ToString: string;
@@ -389,9 +415,9 @@ begin
   FData.AddRange(Values);
 end;
 
-procedure TojIntegerListObject.Add(const Values: string; Separator: string);
+procedure TojIntegerListObject.Add(const Values: string; Separator: string; p_TrimBrackets: boolean);
 begin
-  self.Insert(Count, Values, Separator);
+  self.Insert(Count, Values, Separator, p_TrimBrackets);
 end;
 
 function TojIntegerListObject.AsList(Separator: string): string;
@@ -531,6 +557,16 @@ begin
   FData.Remove(Value);
 end;
 
+procedure TojIntegerListObject.RemoveAll(Value: Int64);
+var i: integer;
+begin
+  for i:= FData.Count-1 downTo 0 do
+  begin
+    if FData.Items[i] = Value
+    then FData.Delete(i);
+  end;
+end;
+
 procedure TojIntegerListObject.RemoveDuplicates;
 var i, j: integer;
     v_value: Int64;
@@ -567,17 +603,30 @@ begin
   result:= format('%d: [%s]', [self.Count, self.AsList]);
 end;
 
-procedure TojIntegerListObject.Insert(Index: Integer; const Values: string; Separator: string);
+procedure TojIntegerListObject.Insert(Index: Integer; const Values: string; Separator: string; p_TrimBrackets: boolean);
 var v_pos, v_length: integer;
     v_item: string;
     v_to_split: string;
     v_result_items: integer;
     v_result: array of Int64;
 begin
+
+  //  musi byc komplet nawiasów, jesli brak pomijamy i sie posypie
+  v_to_split:= Values.Trim;
+  v_length:= Length(v_to_split);
+  if p_TrimBrackets AND (v_length > 2) then
+  begin
+    if FALSE
+       OR ( (v_to_split[1] = '(') AND (v_to_split[v_length] = ')') )
+       OR ( (v_to_split[1] = '{') AND (v_to_split[v_length] = '}') )
+       OR ( (v_to_split[1] = '[') AND (v_to_split[v_length] = ']') )
+    then v_to_split:= v_to_split.Substring(1, v_length-2);
+  end;
+
+
   v_result_items:= 0;
   v_length:= Length(Separator);
-  v_to_split:= Values.Trim;
-
+  v_to_split:= v_to_split.Trim;
   v_pos:= v_to_split.IndexOf(Separator, 0);
   while v_pos >= 0 do
   begin
@@ -585,7 +634,7 @@ begin
 
     Inc(v_result_items);
     SetLength(v_result, v_result_items);
-    v_result[v_result_items-1]:= StrToInt64(v_item);
+    v_result[v_result_items-1]:= StrToInt64(v_item.Trim);
 
     v_to_split:= v_to_split.Substring(v_pos + v_length);
     v_pos:= v_to_split.IndexOf(Separator, 0);
@@ -595,7 +644,7 @@ begin
   begin
     Inc(v_result_items);
     SetLength(v_result, v_result_items);
-    v_result[v_result_items-1]:= StrToInt64(v_to_split);
+    v_result[v_result_items-1]:= StrToInt64(v_to_split.Trim);
   end;
 
   self.Insert(Index, v_result);
