@@ -166,6 +166,9 @@ type
     class operator Add(a: Int64; b: TojIntegerList): TojIntegerList;
     class operator Add(a: TojIntegerList; b: TojIntegerList): TojIntegerList;
 
+    class operator Add(a: string; b: TojIntegerList): string;
+    class operator Add(a: TojIntegerList; b: string): string;
+
     class operator Subtract(a: TojIntegerList; b: Int64): TojIntegerList;
     class operator Subtract(a: TojIntegerList; b: TojIntegerList): TojIntegerList;
 
@@ -403,6 +406,16 @@ begin
   result.Add(b.AsList);
 end;
 
+class operator TojIntegerList.Add(a: string; b: TojIntegerList): string;
+begin
+  result:= a + b.AsList();
+end;
+
+class operator TojIntegerList.Add(a: TojIntegerList; b: string): string;
+begin
+  result:= a.AsList() + b;
+end;
+
 { TojIntegerListObject }
 
 procedure TojIntegerListObject.Add(const Value: Int64);
@@ -614,7 +627,7 @@ begin
   //  musi byc komplet nawiasów, jesli brak pomijamy i sie posypie
   v_to_split:= Values.Trim;
   v_length:= Length(v_to_split);
-  if p_TrimBrackets AND (v_length > 2) then
+  if p_TrimBrackets AND (v_length >= 2) then
   begin
     if FALSE
        OR ( (v_to_split[1] = '(') AND (v_to_split[v_length] = ')') )
