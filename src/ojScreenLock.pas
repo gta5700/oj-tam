@@ -136,6 +136,8 @@ type
     procedure CloseLock;
 
     procedure EraseBkgnd(Canvas: TCanvas; Params: TojScreenLockParams);
+    procedure EraseBkgnd_gradient(Canvas: TCanvas; Params: TojScreenLockParams);
+
     destructor Destroy;override;
   published
     property IsScreenLocked: boolean read getIsScreenLocked;
@@ -638,83 +640,29 @@ begin
     FreeAndNil(v_buffer);
   end;
 
+end;
 
-  EXIT;
-//  v_rect:= Params.Owner.ClientRect;
-//  //  GradientFillCanvas(Canvas, clWhite, clSkyBlue, v_rect, gdVertical);
-//  GradientFillCanvas(Canvas,
-//      Params._GradientProfile[Params.GradientProfile].StartColor,
-//      Params._GradientProfile[Params.GradientProfile].EndColor,
-//      v_rect, gdVertical);
-//
-//  // lock time
-//  if Params.LockStartTime <> 0.0 then
-//  begin
-//    Canvas.Brush.Style:= bsClear;
-//    Canvas.Font.Style:= Canvas.Font.Style + [fsBold];
-//    v_text:= TimeToStr(Now() - Params.LockStartTime);
-//
-//    v_time_rect:= Params.Owner.ClientRect;
-//    v_time_rect.Top:= v_time_rect.Top + CNST_MARGIN;
-//    v_time_rect.Right:= v_time_rect.Right - CNST_MARGIN;
-//    v_time_rect.Left:= v_time_rect.Right - Canvas.TextWidth(v_text);
-//    v_time_rect.Bottom:= v_time_rect.Top + Canvas.TextHeight(v_text);
-//
-//    Canvas.TextRect(v_time_rect, v_text, [tfSingleLine, tfEndEllipsis, tfRight, tfVerticalCenter]);
-//  end;
-//
-//  // caption
-//  if Params.Caption <> '' then
-//  begin
-//    Canvas.Brush.Style:= bsClear;
-//    Canvas.Font.Style:= Canvas.Font.Style + [fsBold];
-//    v_caption_rect:= Params.Owner.ClientRect;
-//    v_caption_rect.Top:= v_caption_rect.Top + CNST_MARGIN;
-//    v_caption_rect.Left:= v_caption_rect.Left + CNST_MARGIN;
-//    v_caption_rect.Bottom:= v_caption_rect.Top + Canvas.TextHeight(Params.Caption);
-//
-//    if Params.LockStartTime = 0.0
-//    then v_caption_rect.Right:= v_caption_rect.Right - CNST_MARGIN
-//    else v_caption_rect.Right:= v_time_rect.Left - CNST_MARGIN;
-//
-//    v_text:= Params.Caption;
-//    //case SecondsBetween(Time(), Params.LockStart) mod 4 of
-//    //  0: v_text:= v_text + '';
-//    //  1: v_text:= v_text + '.';
-//    //  2: v_text:= v_text + '..';
-//    //  3: v_text:= v_text + '...';
-//    //end;
-//    Canvas.TextRect(v_caption_rect, v_text, [tfSingleLine, tfEndEllipsis, tfLeft, tfVerticalCenter]);
-//  end;
-//
-//  // opis
-//  if Params.Text <> '' then
-//  begin
-//    Canvas.Brush.Style:= bsClear;
-//    Canvas.Font.Style:= Canvas.Font.Style - [fsBold];
-//
-//    v_text_rect:= Params.Owner.ClientRect;
-//    v_text_rect.Left:= v_text_rect.Left + CNST_MARGIN;
-//    v_text_rect.Right:= v_text_rect.Right - CNST_MARGIN;
-//    v_text_rect.Bottom:= v_text_rect.Bottom - CNST_MARGIN;
-//
-//    //  if (Params.Caption <> '') OR (Params.LockStart <> 0.0)
-//    //  then v_text_rect.Top:= Max(v_time_rect.Bottom, v_caption_rect.Bottom) + CNST_MARGIN
-//    //  else v_text_rect.Top:= v_text_rect.Top + CNST_MARGIN;
-//
-//    if (Params.Caption <> '')
-//    then v_text_rect.Top:= MAX(v_text_rect.Top, v_caption_rect.Bottom);
-//
-//    if (Params.LockStartTime <> 0.0)
-//    then v_text_rect.Top:= MAX(v_text_rect.Top, v_time_rect.Bottom);
-//
-//    v_text_rect.Top:= v_text_rect.Top + CNST_MARGIN;
-//
-//    v_text:= Params.Text;
-//    Canvas.TextRect(v_text_rect, v_text, [tfWordBreak, tfEndEllipsis, tfLeft, tfVerticalCenter]);
-//  end;
+procedure TojCustomScreenLockForm.EraseBkgnd_gradient(Canvas: TCanvas; Params: TojScreenLockParams);
+var v_rect: TRect;
+    v_buffer: TBitmap;
+    v_canvas: TCanvas;
+const CNST_MARGIN = 5;
+begin
+  v_rect:= Params.Owner.ClientRect;
+  v_buffer:= TBitmap.Create;
+  try
+    v_buffer.SetSize(v_rect.Width, v_rect.Height);
+    v_canvas:= v_buffer.Canvas;
 
+    GradientFillCanvas(v_canvas,
+        Params._GradientProfile[Params.GradientProfile].StartColor,
+        Params._GradientProfile[Params.GradientProfile].EndColor,
+        v_rect, gdVertical);
 
+    Canvas.CopyRect(v_rect, v_canvas, v_rect);
+  finally
+    FreeAndNil(v_buffer);
+  end;
 end;
 
 function TojCustomScreenLockForm.getIsScreenLocked: boolean;
