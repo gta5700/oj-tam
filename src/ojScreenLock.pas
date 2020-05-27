@@ -1,11 +1,12 @@
 unit ojScreenLock;
 {
-  2020-02-11  GTA OK dziala 
+  2020-02-11  GTA OK dziala
+  2020-05-27  GTA OK THREAD dziala
 }
 
 interface
 uses  classes, Vcl.Forms, System.SysUtils, Vcl.Controls, Winapi.Windows, Vcl.Graphics,
-      Winapi.Messages, Generics.Collections;
+      Winapi.Messages, Generics.Collections, ShellApi, psApi;
 
 
 
@@ -48,6 +49,9 @@ type
     FEraseBkgndProc: TojEraseBkgndProc;
     FGradientProfile: TojGradientProfile;
     FLockStartTime: TDateTime;
+    FShowMemoryUsage: boolean;
+    FTextHAlign: TAlignment;
+    FTextVAlign: TVerticalAlignment;
     procedure setShowDropShadow(const Value: boolean);
     procedure setShowBorder(const Value: boolean);
     procedure setAllowMove(const Value: boolean);
@@ -70,6 +74,10 @@ type
     procedure setEraseBkgndProc(const Value: TojEraseBkgndProc);
     procedure setGradientProfile(const Value: TojGradientProfile);
     procedure setLockStartTime(const Value: TDateTime);
+    procedure setShowMemoryUsage(const Value: boolean);
+
+    procedure setTextVAlign(const Value: TVerticalAlignment);
+    procedure setTextHAlign(const Value: TAlignment);
   protected
     function GetOwner: TPersistent; override;
   public
@@ -95,12 +103,17 @@ type
     property Width: integer read FWidth write setWidth;
     property Height: integer read FHeight write setHeight;
 
+    property TextHAlign: TAlignment read FTextHAlign write setTextHAlign;
+    property TextVAlign: TVerticalAlignment read FTextVAlign write setTextVAlign;
+
     property Caption: string read FCaption write setCaption;
     property Text: string read FText write setText;
     property LockStartTime: TDateTime read FLockStartTime write setLockStartTime;
 
     property EraseBkgndProc: TojEraseBkgndProc read FEraseBkgndProc write setEraseBkgndProc;
     property GradientProfile: TojGradientProfile read FGradientProfile write setGradientProfile;
+
+    property ShowMemoryUsage: boolean read FShowMemoryUsage write setShowMemoryUsage;
   end;
 
 
@@ -167,6 +180,7 @@ type
     property Caption: string read getCaption write setCaption;
     property Text: string read getText write setText;
 
+    procedure execThreadTask(const ThreadProc: TProc);
   end;
 
   TojScreenLock = class(TInterfacedObject, IojScreenLock)
@@ -193,6 +207,7 @@ type
     FSharedData: TojSharedData;
     function NeedScreenLockForm: TojCustomScreenLockForm;
 
+    //  procedure IojScreenLock.LockScreen = LockScreen;
     function RefCount:integer;
     procedure LockScreen;
     procedure UnLockScreen;
@@ -204,6 +219,8 @@ type
     function Params: TojScreenLockParams;
     function CreateChild: IojScreenLock;
 
+    procedure execThreadTask(const ThreadProc: TProc);
+
     property Name: string read getName write setName;
     property Caption: string read getCaption write setCaption;
     property Text: string read getText write setText;
@@ -212,8 +229,8 @@ type
   public
     destructor Destroy;override;
   public
-    class function Create(p_Caption: string = ''; p_LockScreen:boolean = TRUE): IojScreenLock;
-    class function TryLockScreen(var p_ScreenLock: IojScreenLock; p_Caption: string = ''): boolean;
+    class function Create(p_Caption: string = ''; p_Text: string = ''; p_LockScreen:boolean = TRUE): IojScreenLock;
+    class function getLock(p_Text: string = ''): IojScreenLock;
   end;
 
 
@@ -245,12 +262,16 @@ begin
 
   FCaption:= 'Proszê czekaæ';
   FText:= '';
+  FTextHAlign:= TAlignment.taLeftJustify;
+  FTextVAlign:= TVerticalAlignment.taVerticalCenter;
+
 
   //FLockStart:= 0.0;
   FLockStartTime:= 0.0;
 
   FEraseBkgndProc:= nil;
   FGradientProfile:= gpInfo;
+  ShowMemoryUsage:= FALSE;
 end;
 
 
@@ -452,11 +473,38 @@ begin
   end;
 end;
 
+procedure TojScreenLockParams.setShowMemoryUsage(const Value: boolean);
+begin
+  if FShowMemoryUsage <> Value then
+  begin
+    FShowMemoryUsage:= Value;
+    ParamsChanged;
+  end;
+end;
+
 procedure TojScreenLockParams.setText(const Value: string);
 begin
   if FText <> Value then
   begin
     FText:= Value;
+    ParamsChanged;
+  end;
+end;
+
+procedure TojScreenLockParams.setTextHAlign(const Value: TAlignment);
+begin
+  if FTextHAlign <> Value then
+  begin
+    FTextHAlign:= Value;
+    ParamsChanged;
+  end;
+end;
+
+procedure TojScreenLockParams.setTextVAlign(const Value: TVerticalAlignment);
+begin
+  if FTextVAlign <> Value then
+  begin
+    FTextVAlign:= Value;
     ParamsChanged;
   end;
 end;
@@ -554,13 +602,72 @@ begin
   inherited;
 end;
 
-procedure TojCustomScreenLockForm.EraseBkgnd(Canvas: TCanvas; Params: TojScreenLockParams);
-var v_rect, v_caption_rect, v_text_rect, v_time_rect: TRect;
-    v_text: string;
 
+function GetMemoryUsed: UInt64;
+var
+  st: TMemoryManagerState;
+  sb: TSmallBlockTypeState;
+begin
+  GetMemoryManagerState(st);
+  result :=  st.TotalAllocatedMediumBlockSize +
+           + st.TotalAllocatedLargeBlockSize;
+  for sb in st.SmallBlockTypeStates do begin
+    result := result + sb.UseableBlockSize * sb.AllocatedBlockCount;
+  end;
+end;
+
+
+
+
+function RefreshSnapShot: string;
+var
+  LInd: integer;
+  LAllocatedSize, LTotalBlocks, LTotalAllocated, LTotalReserved: Cardinal;
+
+  FMemoryManagerState: TMemoryManagerState;
+  FMemoryMap: TMemoryMap;
+begin
+  result:= '';
+  {Get the state}
+  GetMemoryManagerState(FMemoryManagerState);
+  GetMemoryMap(FMemoryMap);
+
+  result:=
+    format('LTotalBlocks = %d%s', [LTotalBlocks, sLineBreak]) +
+    format('LTotalAllocated = %d%s', [LTotalAllocated, sLineBreak]) +
+    format('LTotalReserved = %d%s', [LTotalReserved, sLineBreak]);
+
+  if LTotalReserved > 0
+  then result:= result +FormatFloat('XXXX = 0.##%', LTotalAllocated/LTotalReserved * 100);
+end;
+
+
+function CsiGetProcessMemory: Int64;
+var
+  lMemoryCounters: TProcessMemoryCounters;
+  lSize: Integer;
+begin
+  lSize := SizeOf(lMemoryCounters);
+  FillChar(lMemoryCounters, lSize, 0);
+  if GetProcessMemoryInfo(GetCurrentProcess, @lMemoryCounters, lSize) then
+    Result := lMemoryCounters.PageFileUsage
+  else
+    Result := 0;
+
+end;
+
+procedure TojCustomScreenLockForm.EraseBkgnd(Canvas: TCanvas; Params: TojScreenLockParams);
+var v_rect, v_caption_rect, v_text_rect, v_time_rect, v_temp_rect: TRect;
+    v_text: string;
+    v_height: integer;
     v_buffer: TBitmap;
     v_canvas: TCanvas;
 
+    FMemoryManagerState: TMemoryManagerState;
+    v_MemoryCounters: TProcessMemoryCounters;
+    v_Size: integer;
+
+    v_flags: TTextFormat;
 const CNST_MARGIN = 5;
 begin
   v_rect:= Params.Owner.ClientRect;
@@ -613,7 +720,64 @@ begin
     end;
 
     // opis
-    if Params.Text <> '' then
+    if (Params.Text <> '') AND not Params.ShowMemoryUsage then
+    begin
+      v_canvas.Brush.Style:= bsClear;
+      v_canvas.Font.Style:= v_canvas.Font.Style - [fsBold];
+
+      v_text_rect:= Params.Owner.ClientRect;
+      v_text_rect.Left:= v_text_rect.Left + CNST_MARGIN;
+      v_text_rect.Right:= v_text_rect.Right - CNST_MARGIN;
+      v_text_rect.Bottom:= v_text_rect.Bottom - CNST_MARGIN;
+
+      if (Params.Caption <> '')
+      then v_text_rect.Top:= MAX(v_text_rect.Top, v_caption_rect.Bottom);
+
+      if (Params.LockStartTime <> 0.0)
+      then v_text_rect.Top:= MAX(v_text_rect.Top, v_time_rect.Bottom);
+
+      v_text_rect.Top:= v_text_rect.Top + CNST_MARGIN;
+      v_text:= Params.Text;
+
+      v_flags:= [tfWordBreak, tfEndEllipsis];
+      case Params.TextHAlign of
+        taLeftJustify: v_flags:= v_flags + [tfLeft];
+        taRightJustify: v_flags:= v_flags + [tfRight];
+        taCenter: v_flags:= v_flags + [tfCenter];
+      end;
+
+      case Params.TextVAlign of
+        taAlignTop: v_flags:= v_flags + [tfTop];
+        taAlignBottom: v_flags:= v_flags + [tfBottom];
+        taVerticalCenter: v_flags:= v_flags + [tfVerticalCenter];
+      end;
+
+      //  v_canvas.Brush.Color:= clLime;
+      //  v_canvas.Brush.Style:= bsSolid;
+      //  v_canvas.DrawFocusRect(v_text_rect);
+
+      //  v_text_rect w tym obszarze mamy sie zmieœcic
+      //  v_temp_rect w tym obszarze miesci sie text ale przycinamy jego wysokosc i szerokosc
+      v_temp_rect:= TRect.Create(0, 0, v_text_rect.Width, v_text_rect.Height);
+      v_canvas.TextRect(v_temp_rect, v_text, v_flags + [tfCalcRect]);
+      v_temp_rect.Height:= Min(v_temp_rect.Height, v_text_rect.Height);
+      v_temp_rect.Width:= v_text_rect.Width;
+
+      // przesuwamy w zale¿noœci od VAlignment
+      case Params.TextVAlign of
+        taAlignTop: v_temp_rect.Offset(v_text_rect.Left + (v_text_rect.width - v_temp_rect.Width) div 2,
+                                       v_text_rect.Top);
+        taAlignBottom: v_temp_rect.Offset(v_text_rect.Left + (v_text_rect.width - v_temp_rect.Width) div 2,
+                                          v_text_rect.Top + (v_text_rect.height - v_temp_rect.Height));
+        taVerticalCenter: v_temp_rect.Offset(v_text_rect.Left + (v_text_rect.width - v_temp_rect.Width) div 2,
+                                             v_text_rect.Top + (v_text_rect.height - v_temp_rect.Height) div 2);
+      end;
+
+      v_canvas.Brush.Style:= bsClear;
+      v_canvas.TextRect(v_temp_rect, v_text, v_flags);
+    end;
+
+    if Params.ShowMemoryUsage then
     begin
       v_canvas.Brush.Style:= bsClear;
       v_canvas.Font.Style:= v_canvas.Font.Style - [fsBold];
@@ -631,7 +795,42 @@ begin
 
       v_text_rect.Top:= v_text_rect.Top + CNST_MARGIN;
 
-      v_text:= Params.Text;
+      GetMemoryManagerState(FMemoryManagerState);
+      v_text:= format(
+          'AllocatedMediumBlockCount = %d%s'+
+          'TotalAllocatedMediumBlockSize = %d%s'+
+          'ReservedMediumBlockAddressSpace = %d%s'+
+          'AllocatedLargeBlockCount = %d%s'+
+          'TotalAllocatedLargeBlockSize = %d%s'+
+          'ReservedLargeBlockAddressSpace = %d%s',
+
+          [FMemoryManagerState.AllocatedMediumBlockCount, sLineBreak,
+           FMemoryManagerState.TotalAllocatedMediumBlockSize, sLineBreak,
+           FMemoryManagerState.ReservedMediumBlockAddressSpace, sLineBreak,
+           FMemoryManagerState.AllocatedLargeBlockCount, sLineBreak,
+           FMemoryManagerState.TotalAllocatedLargeBlockSize, sLineBreak,
+           FMemoryManagerState.ReservedLargeBlockAddressSpace, sLineBreak
+          ]);
+
+
+      v_text:= RefreshSnapShot;
+
+
+      v_Size := SizeOf(v_MemoryCounters);
+      FillChar(v_MemoryCounters, v_Size, 0);
+      if GetProcessMemoryInfo(GetCurrentProcess, @v_MemoryCounters, v_Size) then
+      v_text:= format(
+          'WorkingSetSize = %d%s'+
+          'PeakWorkingSetSize = %d%s'+
+          'PagefileUsage = %d%s'+
+          'PeakPagefileUsage = %d%s',
+
+          [v_MemoryCounters.WorkingSetSize, sLineBreak,
+           v_MemoryCounters.PeakWorkingSetSize, sLineBreak,
+           v_MemoryCounters.PagefileUsage, sLineBreak,
+           v_MemoryCounters.PeakPagefileUsage, sLineBreak
+          ]);
+
       v_canvas.TextRect(v_text_rect, v_text, [tfWordBreak, tfEndEllipsis, tfLeft, tfVerticalCenter]);
     end;
 
@@ -914,7 +1113,7 @@ begin
 
 end;
 
-class function TojScreenLock.Create(p_Caption: string; p_LockScreen:boolean): IojScreenLock;
+class function TojScreenLock.Create(p_Caption, p_Text: string; p_LockScreen:boolean): IojScreenLock;
 begin
   //  jesli istnieje TYLKO 1 obiekt sterujacy
   if Assigned(TojScreenLock.ScreenLock) AND (TojScreenLock.ScreenLock.LockObjCount = 1)
@@ -930,6 +1129,7 @@ begin
   result:= TojScreenLock.ScreenLock.CreateChild;
 
   if p_Caption <> '' then result.Caption:= p_Caption;
+  if p_Text <> '' then result.Text:= p_Text;
   if p_LockScreen then result.LockScreen;
 end;                                                   
 
@@ -952,6 +1152,27 @@ begin
   inherited;
 end;
 
+procedure TojScreenLock.execThreadTask(const ThreadProc: TProc);
+var v_th: TThread;
+const CNST_LOCAL_TIMEOUT = 25;
+begin
+
+  v_th:= TThread.CreateAnonymousThread(ThreadProc);
+  try
+    v_th.FreeOnTerminate:= FALSE;
+    v_th.Start;
+    while not v_th.Finished do
+    begin
+      WaitForSingleObject(v_th.Handle, CNST_LOCAL_TIMEOUT);
+      Application.ProcessMessages;
+    end;
+    if v_th.Finished
+    then getTime;
+  finally
+    FreeAndNil(v_th)
+  end;
+end;
+
 function TojScreenLock.Form: TCustomForm;
 begin
   result:= FSharedData.ScreenLockForm;
@@ -960,6 +1181,11 @@ end;
 function TojScreenLock.getCaption: string;
 begin
   result:= NeedScreenLockForm.Params.Caption;
+end;
+
+class function TojScreenLock.getLock(p_Text: string): IojScreenLock;
+begin
+  result:= TojScreenLock.Create('', p_Text, TRUE);
 end;
 
 function TojScreenLock.getName: string;
@@ -1044,12 +1270,6 @@ begin
   end;
 end;
 
-class function TojScreenLock.TryLockScreen(var p_ScreenLock: IojScreenLock; p_Caption: string): boolean;
-begin
-  p_ScreenLock:= TojScreenLock.Create(p_Caption, TRUE);
-  result:= TRUE;
-end;
-
 procedure TojScreenLock.UnLockScreen;
 begin
   if FSharedData.CalledLock.IndexOf(self) < 0
@@ -1069,7 +1289,6 @@ begin
   ScreenLockForm:= nil;
   Pociotki:= TObjectList<TojScreenLock>.Create(FALSE);
   CalledLock:= TObjectList<TojScreenLock>.Create(FALSE);
-  //  CalledRelease:= TObjectList<TojScreenLock>.Create(FALSE);
 end;
 
 destructor TojScreenLock.TojSharedData.Destroy;
@@ -1085,4 +1304,5 @@ initialization
   TojScreenLock.ScreenLock:= nil;
 finalization
   TojScreenLock.ScreenLock:= nil;
+
 end.

@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{26D26058-DA67-4C99-AACD-4A866CA3061C}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="oj_tam_template_test\template_test.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="oj_tam_screen_lock_test\screen_lock_test.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="template_test">
+        <MSBuild Projects="oj_tam_template_test\template_test.dproj"/>
+    </Target>
+    <Target Name="template_test:Clean">
+        <MSBuild Projects="oj_tam_template_test\template_test.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="template_test:Make">
+        <MSBuild Projects="oj_tam_template_test\template_test.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="screen_lock_test">
+        <MSBuild Projects="oj_tam_screen_lock_test\screen_lock_test.dproj"/>
+    </Target>
+    <Target Name="screen_lock_test:Clean">
+        <MSBuild Projects="oj_tam_screen_lock_test\screen_lock_test.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="screen_lock_test:Make">
+        <MSBuild Projects="oj_tam_screen_lock_test\screen_lock_test.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="template_test;screen_lock_test"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="template_test:Clean;screen_lock_test:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="template_test:Make;screen_lock_test:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
