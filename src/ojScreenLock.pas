@@ -899,17 +899,30 @@ begin
 
   FIsClosingLock:= TRUE;
   try
+
+    if self.WindowState in [wsNormal, wsMinimized, wsMaximized]
+    then getTime;
+
     //  before close itp
     if GetCapture <> 0
     then SendMessage(GetCapture, WM_CANCELMODE, 0, 0);
 
     ReleaseCapture;
 
+    if self.WindowState in [wsNormal, wsMinimized, wsMaximized]
+    then getTime;
+
+    if not self.Visible
+    then getTime;
+
     EnableWindow(FPrevActiveWindow, TRUE);
     FPrevActiveWindow:= 0;
+
+    if not self.Visible
+    then getTime;
+
     Hide;
 
-    //  self.Params.LockStart:= 0.0;
     self.Params.LockStartTime:= 0.0;
   finally
     FIsClosingLock:= FALSE;
@@ -1154,6 +1167,7 @@ end;
 
 procedure TojScreenLock.execThreadTask(const ThreadProc: TProc);
 var v_th: TThread;
+    v_exception: Exception;
 const CNST_LOCAL_TIMEOUT = 25;
 begin
 
@@ -1168,6 +1182,14 @@ begin
     end;
     if v_th.Finished
     then getTime;
+
+    if Assigned(v_th.FatalException) then
+    begin
+      v_exception:= ExceptClass(v_th.FatalException.ClassType).Create('');
+      v_exception.Message:= Exception(v_th.FatalException).Message;
+      raise v_exception;
+    end;
+
   finally
     FreeAndNil(v_th)
   end;
